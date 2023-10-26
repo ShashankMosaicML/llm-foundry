@@ -6,13 +6,37 @@ models:
 -
   model_name: mosaicml/mpt-7b-chat-8k
   model:
-    name: hf_causal_lm
-    pretrained_model_name_or_path: mosaicml/mpt-7b-chat-8k
-    pretrained: true
+    name: mpt_causal_lm
+    init_device: meta
+    # Set the below model parameters to match the checkpoint specified with load_path
+    d_model: 768
+    n_heads: 12
+    n_layers: 12
+    expansion_ratio: 4
+    max_seq_len: ${max_seq_len}
+    vocab_size: 50368
+    no_bias: true
+    learned_pos_emb: false
+    use_cache: True
     attn_config:
+      alibi: false
       attn_impl: triton
+      clip_qkv: 6
+      attn_uses_sequence_id: false
+      rope: True
+      rope_theta: 10000
+      rope_imp: dail
+      rope_dail_config:
+        type: original
+        pos_idx_in_fp32: true
+        xpos_scale_base: 512
+      rope_hf_config:
+        type: no_scaling
+        factor: 1.0
+
+  load_path: oci://mosaicml-internal-checkpoints/shashank/rope_v_alibi_final_125m/125m-rope/latest-rank0.pt # Add your non-optional Composer checkpoint path here! (must not be empty)
   tokenizer:
-    name: mosaicml/mpt-7b-chat-8k
+    name: EleutherAI/gpt-neox-20b
     kwargs:
       model_max_length: ${max_seq_len}
 
