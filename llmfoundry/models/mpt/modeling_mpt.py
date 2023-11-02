@@ -83,6 +83,9 @@ except:
 
 import logging
 
+from torch import Tensor
+from torchmetrics import Metric
+
 log = logging.getLogger(__name__)
 
 
@@ -128,6 +131,60 @@ def _rotary_embedding(config: MPTConfig):
                 device=
                 'cpu'  # FSDP does not materialize modules with meta buffers, hence device is set to cpu
             )
+
+
+class LanguagePerplexityNoReduce(Metric):
+
+    # Make torchmetrics call update only once
+    full_state_update = False
+
+    def __init__(self,
+                 dist_sync_on_step: bool = False,
+                 ignore_index: int = -100):
+        super().__init__(dist_sync_on_step=dist_sync_on_step)
+
+        self.ignore_index = ignore_index
+        self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=ignore_index,
+                                                 reduction='none')
+        self.add_state('agg_perp', default=torch.empty(0), dist_reduce_fx=None)
+        self.add_state('sum_perp',
+                       default=torch.Tensor([0.0]),
+                       dist_reduce_fx=None)
+        self.add_state('sum_length',
+                       default=torch.Tensor([0.0]),
+                       dist_reduce_fx=None)
+
+    def update(self, output: Union[Mapping, Tensor], target: Tensor) -> None:
+        """Updates the internal state with results from a new batch.
+
+        Args:
+            output (Mapping): The output from the model, which must contain
+                either the Tensor or a Mapping type that contains the loss or model logits.
+            target (~torch.Tensor): A Tensor of ground-truth values to compare against.
+        """
+        if isinstance(output, Mapping):
+            logits = output['logits']
+        elif isinstance(output, Tensor):
+            logits = output
+        else:
+            raise Exception(
+                f'Type {type(output)} for the output is unsupported.')
+
+        target = target.view(-1)
+        logits = logits.view(target.shape[0], -1)
+        losses = torch.exp(self.loss_fn(logits, target))
+
+        # accumulate loss over all batches
+        self.agg_perp = torch.cat((self.agg_perp, losses))
+
+    def compute(self) -> Tensor:
+        """Aggregate the state over all processes to compute the metric.
+
+        Returns:
+            loss: The loss averaged across all batches as a :class:`~torch.Tensor`.
+        """
+        # Return average loss over entire dataset
+        return self.agg_perp
 
 
 class MPTPreTrainedModel(PreTrainedModel):
@@ -777,11 +834,15 @@ class ComposerMPTCausalLM(HuggingFaceModel):
         model = MPTForCausalLM(hf_config)
 
         use_train_metrics = om_model_config.get('use_train_metrics', True)
-        train_metrics = [LanguageCrossEntropy(),
-                         LanguagePerplexity()] if use_train_metrics else []
+        train_metrics = [
+            LanguageCrossEntropy(),
+            LanguagePerplexity(),
+            LanguagePerplexityNoReduce(),
+        ] if use_train_metrics else []
         eval_metrics = [
             LanguageCrossEntropy(),
             LanguagePerplexity(),
+            LanguagePerplexityNoReduce(),
             InContextLearningLMAccuracy(),
             InContextLearningMultipleChoiceAccuracy(),
             InContextLearningQAAccuracy(),

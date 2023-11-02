@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
 import torch
+from composer.core import Evaluator
+from composer.core.callback import Callback
 from composer.loggers.logger_destination import LoggerDestination
 from composer.models.base import ComposerModel
 from composer.trainer import Trainer
@@ -19,11 +21,40 @@ from omegaconf import OmegaConf as om
 from transformers import (AutoModelForCausalLM, PreTrainedTokenizerBase,
                           T5ForConditionalGeneration)
 
+from llmfoundry import (build_finetuning_dataloader,
+                        build_text_denoising_dataloader)
+from llmfoundry.data.text_data import build_text_dataloader
 from llmfoundry.models import MPTForCausalLM
 from llmfoundry.models.model_registry import COMPOSER_MODEL_REGISTRY
-from llmfoundry.utils.builders import (build_icl_data_and_gauntlet,
+from llmfoundry.utils.builders import (build_callback,
+                                       build_icl_data_and_gauntlet,
                                        build_logger, build_tokenizer)
 from llmfoundry.utils.config_utils import pop_config, process_init_device
+
+
+# copied from train.py
+def build_dataloader(cfg: DictConfig, tokenizer: PreTrainedTokenizerBase,
+                     device_batch_size: int):
+    if cfg.name == 'text':
+        return build_text_dataloader(
+            cfg,
+            tokenizer,
+            device_batch_size,
+        )
+    elif cfg.name == 'text_denoising':
+        return build_text_denoising_dataloader(
+            cfg,
+            tokenizer,
+            device_batch_size,
+        )
+    elif cfg.name == 'finetuning':
+        return build_finetuning_dataloader(
+            cfg,
+            tokenizer,
+            device_batch_size,
+        )
+    else:
+        raise ValueError(f'Not sure how to build dataloader with config: {cfg}')
 
 
 def load_peft_model(model_cfg: DictConfig, tokenizer: PreTrainedTokenizerBase,
@@ -107,6 +138,7 @@ def evaluate_model(
     precision: str,
     eval_gauntlet_df: Optional[pd.DataFrame],
     icl_subset_num_batches: Optional[int],
+    eval_loader_config: Optional[Union[DictConfig, ListConfig]] = None,
 ):
 
     print(f'Evaluating model: {model_cfg.model_name}', flush=True)
@@ -123,13 +155,32 @@ def evaluate_model(
         max_seq_len, icl_subset_num_batches)
 
     callbacks = []
+
+    # TODO: The following line is a hack to get the eval metrics to work
+    callback_configs: Dict[str, Any] = {'eval_loss_v_context_length': {}}
+    callbacks: List[Callback] = [
+        build_callback(str(name), callback_cfg)
+        for name, callback_cfg in callback_configs.items()
+    ] if callback_configs else []
+
+    eval_loaders = []
+    if eval_loader_config is not None:
+        is_multi_eval = isinstance(eval_loader_config, ListConfig)
+        eval_configs = eval_loader_config if is_multi_eval else [
+            eval_loader_config
+        ]
+        for eval_config in eval_configs:
+            eval_dataloader = build_dataloader(eval_config, tokenizer,
+                                               device_eval_batch_size)
+            eval_loader = Evaluator(
+                label=f'eval/{eval_config.label}' if is_multi_eval else 'eval',
+                dataloader=eval_dataloader,
+                metric_names=[],  # we will add these after model is created
+            )
+            eval_loaders.append(eval_loader)
+
     if eval_gauntlet_callback is not None:
         callbacks.append(eval_gauntlet_callback)
-
-    loggers: List[LoggerDestination] = [
-        build_logger(name, logger_cfg)
-        for name, logger_cfg in loggers_cfg.items()
-    ]
 
     if fsdp_config and model_cfg.model.get('load_in_8bit', False):
         raise ValueError(
@@ -142,6 +193,16 @@ def evaluate_model(
     else:
         composer_model = load_model(model_cfg.model, tokenizer, fsdp_config,
                                     num_retries)
+
+    eval_metric_names = list(composer_model.train_metrics.keys())
+    for eval_loader in eval_loaders:
+        eval_loader.metric_names = eval_metric_names
+        evaluators.insert(0, eval_loader)  # Put the base eval_loaders first
+
+    loggers: List[LoggerDestination] = [
+        build_logger(name, logger_cfg)
+        for name, logger_cfg in loggers_cfg.items()
+    ]
 
     if eval_gauntlet_df is None and eval_gauntlet_callback is not None:
         eval_gauntlet_df = pd.DataFrame(
@@ -291,7 +352,11 @@ def main(cfg: DictConfig):
              python_log_level=python_log_level,
              precision=precision,
              eval_gauntlet_df=eval_gauntlet_df,
-             icl_subset_num_batches=icl_subset_num_batches)
+             icl_subset_num_batches=icl_subset_num_batches,
+             eval_loader_config=pop_config(cfg,
+                                           'eval_loader',
+                                           must_exist=False,
+                                           default_value=None))
 
         if eval_gauntlet_callback is not None:
             composite_scores = eval_gauntlet_callback.eval_after_all(

@@ -3,6 +3,8 @@
 
 try:
     from llmfoundry.callbacks.eval_gauntlet_callback import EvalGauntlet
+    from llmfoundry.callbacks.eval_loss_v_context_length_callback import \
+        LossVsContextLengthEvaluator
     from llmfoundry.callbacks.fdiff_callback import FDiffMetrics
     from llmfoundry.callbacks.generate_callback import Generate
     from llmfoundry.callbacks.hf_checkpointer import HuggingFaceCheckpointer
@@ -28,4 +30,5 @@ __all__ = [
     'EvalGauntlet',
     'ModelGauntlet',
     'HuggingFaceCheckpointer',
+    'LossVsContextLengthEvaluator',
 ]
