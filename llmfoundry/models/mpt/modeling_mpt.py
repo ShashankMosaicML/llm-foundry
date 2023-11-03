@@ -85,7 +85,6 @@ except:
 import logging
 
 from torch import Tensor
-from torchmetrics import Metric
 
 log = logging.getLogger(__name__)
 
@@ -151,7 +150,7 @@ class LanguagePerplexityNoReduce(InContextLearningMetric):
                        default=torch.Tensor([0.0]),
                        dist_reduce_fx='sum')
         self.add_state('sum_length',
-                       default=torch.Tensor([0.0]),
+                       default=torch.Tensor([0]),
                        dist_reduce_fx='sum')
 
     def update(self, batch: dict, output: Union[Mapping, Tensor], target: Tensor) -> None:
