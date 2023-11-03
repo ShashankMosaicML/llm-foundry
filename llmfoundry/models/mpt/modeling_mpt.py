@@ -14,7 +14,8 @@ from typing import (Any, Dict, List, Mapping, MutableMapping, Optional, Tuple,
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from composer.metrics import (InContextLearningCodeEvalAccuracy,
+from composer.metrics import (InContextLearningMetric,
+                              InContextLearningCodeEvalAccuracy,
                               InContextLearningLMAccuracy,
                               InContextLearningLMExpectedCalibrationError,
                               InContextLearningMCExpectedCalibrationError,
@@ -133,7 +134,7 @@ def gen_rotary_embedding(rope_head_dim: int, rope_impl: str, rope_theta: int,
     raise ValueError('rope_impl needs to be either dail or hf')
 
 
-class LanguagePerplexityNoReduce(Metric):
+class LanguagePerplexityNoReduce(InContextLearningMetric):
 
     # Make torchmetrics call update only once
     full_state_update = False
@@ -146,15 +147,14 @@ class LanguagePerplexityNoReduce(Metric):
         self.ignore_index = ignore_index
         self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=ignore_index,
                                                  reduction='none')
-        self.add_state('agg_perp', default=torch.empty(0), dist_reduce_fx=None)
         self.add_state('sum_perp',
                        default=torch.Tensor([0.0]),
-                       dist_reduce_fx=None)
+                       dist_reduce_fx='sum')
         self.add_state('sum_length',
                        default=torch.Tensor([0.0]),
-                       dist_reduce_fx=None)
+                       dist_reduce_fx='sum')
 
-    def update(self, output: Union[Mapping, Tensor], target: Tensor) -> None:
+    def update(self, batch: dict, output: Union[Mapping, Tensor], target: Tensor) -> None:
         """Updates the internal state with results from a new batch.
 
         Args:
@@ -172,10 +172,23 @@ class LanguagePerplexityNoReduce(Metric):
 
         target = target.view(-1)
         logits = logits.view(target.shape[0], -1)
-        losses = torch.exp(self.loss_fn(logits, target))
+        perplexity = torch.exp(self.loss_fn(logits, target))
 
-        # accumulate loss over all batches
-        self.agg_perp = torch.cat((self.agg_perp, losses))
+        seq_id = batch['sequence_id']
+        seq_id_expanded = (torch.arange(seq_id.shape[-1]).repeat(
+            seq_id.shape[-1],
+            1).transpose(0, 1).to(seq_id) == seq_id.unsqueeze(-2))
+        seq_id_expanded = (seq_id_expanded.cumsum(dim=-1) - 1) * seq_id_expanded
+        tok_ids = seq_id_expanded.sum(dim=-2)
+        tok_ids_expanded = (torch.arange(tok_ids.shape[-1]).repeat(
+            tok_ids.shape[-1],
+            1).transpose(0, 1).to(tok_ids) == tok_ids.unsqueeze(-2))
+        perplexity = perplexity.view(tok_ids_expanded.shape[:-1]).unsqueeze(-2)
+        self.sum_perp = self.sum_perp + torch.where(
+                tok_ids_expanded, perplexity, 0).sum(dim=-1).sum(dim=0)
+        self.sum_length = self.sum_length + tok_ids_expanded.sum(
+                dim=-1).sum(dim=0)
+
 
     def compute(self) -> Tensor:
         """Aggregate the state over all processes to compute the metric.
@@ -184,7 +197,7 @@ class LanguagePerplexityNoReduce(Metric):
             loss: The loss averaged across all batches as a :class:`~torch.Tensor`.
         """
         # Return average loss over entire dataset
-        return self.agg_perp
+        return (self.sum_perp, self.sum_length)
 
 
 class MPTPreTrainedModel(PreTrainedModel):
