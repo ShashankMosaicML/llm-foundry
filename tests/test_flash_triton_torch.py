@@ -6,7 +6,7 @@ import torch
 from omegaconf import OmegaConf as om
 
 from llmfoundry.models.layers.attention import is_flash_v2_installed
-from tests.test_rope_dail_vs_hf import gen_rotary_embedding
+from llmfoundry.models.mpt.modeling_mpt import gen_rotary_embedding
 
 
 def allclose_helper(t0: torch.Tensor,
@@ -31,7 +31,7 @@ def allclose_helper(t0: torch.Tensor,
     'alibi': False,
     'rope': True,
     'rope_theta': 10000,
-    'rope_imp': 'dail',
+    'rope_impl': 'dail',
     'rope_dail_config': {
         'type': 'original',
         'pos_idx_in_fp32': True,
@@ -41,7 +41,7 @@ def allclose_helper(t0: torch.Tensor,
     'alibi': False,
     'rope': True,
     'rope_theta': 10000,
-    'rope_imp': 'hf',
+    'rope_impl': 'hf',
     'rope_hf_config': {
         'type': 'no_scaling',
         'factor': 1.0,
@@ -68,7 +68,7 @@ def test_attn_impl(attn_impl_0: str,
     if alibi and (attn_impl_0 == 'flash' or attn_impl_1 == 'flash'):
         pytest.xfail('flash attn does not support alibi')
 
-    if rope and (pos_emb_config['rope_imp']
+    if rope and (pos_emb_config['rope_impl']
                  == 'dail') and (not is_flash_v2_installed()):
         pytest.skip('dail implementation of rope requires flash attention 2.')
 
@@ -130,7 +130,10 @@ def test_attn_impl(attn_impl_0: str,
         if rope:
             rotary_embedding = gen_rotary_embedding(
                 rope_head_dim=cfg.d_model // cfg.n_heads,
-                pos_emb_config=pos_emb_config,
+                rope_impl=pos_emb_config['rope_impl'],
+                rope_theta=pos_emb_config['rope_theta'],
+                rope_dail_config=pos_emb_config.get('rope_dail_config', {}),
+                rope_hf_config=pos_emb_config.get('rope_hf_config', {}),
                 max_seq_len=s).to(device)
             pos = torch.arange(s).unsqueeze(0).to(device=device)
             # adjust the position indices to account for padding tokens
@@ -140,11 +143,11 @@ def test_attn_impl(attn_impl_0: str,
             )
             rotary_emb_w_meta_info = {
                 'imp':
-                    pos_emb_config['rope_imp'],
+                    pos_emb_config['rope_impl'],
                 'rotary_emb':
                     rotary_embedding,
                 'offset_info':
-                    pos if (pos_emb_config['rope_imp'] == 'hf') else 0,
+                    pos if (pos_emb_config['rope_impl'] == 'hf') else 0,
                 'seq_len':
                     s,
             }
