@@ -14,11 +14,11 @@ from typing import (Any, Dict, List, Mapping, MutableMapping, Optional, Tuple,
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from composer.metrics import (InContextLearningMetric,
-                              InContextLearningCodeEvalAccuracy,
+from composer.metrics import (InContextLearningCodeEvalAccuracy,
                               InContextLearningLMAccuracy,
                               InContextLearningLMExpectedCalibrationError,
                               InContextLearningMCExpectedCalibrationError,
+                              InContextLearningMetric,
                               InContextLearningMultipleChoiceAccuracy,
                               InContextLearningQAAccuracy)
 from composer.metrics.nlp import LanguageCrossEntropy, LanguagePerplexity
@@ -153,7 +153,8 @@ class LanguagePerplexityNoReduce(InContextLearningMetric):
                        default=torch.Tensor([0]),
                        dist_reduce_fx='sum')
 
-    def update(self, batch: dict, output: Union[Mapping, Tensor], target: Tensor) -> None:
+    def update(self, batch: dict, output: Union[Mapping, Tensor],
+               target: Tensor) -> None:
         """Updates the internal state with results from a new batch.
 
         Args:
@@ -168,27 +169,29 @@ class LanguagePerplexityNoReduce(InContextLearningMetric):
         else:
             raise Exception(
                 f'Type {type(output)} for the output is unsupported.')
-
+        bsz, seq_len = target.shape
         target = target.view(-1)
         logits = logits.view(target.shape[0], -1)
         # perplexity = torch.exp(self.loss_fn(logits, target))
         perplexity = self.loss_fn(logits, target)
 
         seq_id = batch['sequence_id']
-        seq_id_expanded = (torch.arange(seq_id.shape[-1]).repeat(
-            seq_id.shape[-1],
-            1).transpose(0, 1).to(seq_id) == seq_id.unsqueeze(-2))
+        seq_id_expanded = (torch.arange(seq_len).repeat(seq_len, 1).transpose(
+            0, 1).to(seq_id) == seq_id.unsqueeze(-2))
         seq_id_expanded = (seq_id_expanded.cumsum(dim=-1) - 1) * seq_id_expanded
         tok_ids = seq_id_expanded.sum(dim=-2)
-        tok_ids_expanded = (torch.arange(tok_ids.shape[-1]).repeat(
-            tok_ids.shape[-1],
-            1).transpose(0, 1).to(tok_ids) == tok_ids.unsqueeze(-2))
-        perplexity = perplexity.view(tok_ids_expanded.shape[:-1]).unsqueeze(-2)
-        self.sum_perp = self.sum_perp + torch.where(
-                tok_ids_expanded, perplexity, 0).sum(dim=-1).sum(dim=0)
-        self.sum_length = self.sum_length + tok_ids_expanded.sum(
-                dim=-1).sum(dim=0)
+        tok_ids_expanded = (torch.arange(seq_len).repeat(seq_len, 1).transpose(
+            0, 1).to(tok_ids) == tok_ids.unsqueeze(-2))
 
+        ignore_mask = (target.view(bsz, seq_len) == self.ignore_index)
+        ignore_mask = ignore_mask.unsqueeze(1).expand(-1, seq_len, -1)
+        tok_ids_expanded = torch.where(ignore_mask, False, tok_ids_expanded)
+
+        perplexity = perplexity.view(bsz, seq_len).unsqueeze(-2)
+        self.sum_perp = self.sum_perp + torch.where(
+            tok_ids_expanded, perplexity, 0).sum(dim=-1).sum(dim=0)
+        self.sum_length = self.sum_length + tok_ids_expanded.sum(dim=-1).sum(
+            dim=0)
 
     def compute(self) -> Tensor:
         """Aggregate the state over all processes to compute the metric.
