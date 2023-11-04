@@ -17,14 +17,14 @@ class LossVsContextLengthEvaluator(Callback):
         avg_perp = sum_perp / sum_length
         scatter_lcp = wandb.Table(
             data=[[i, b] for (i, b) in enumerate(avg_perp.tolist())],
-            columns=['seq_length', 'perplexity'])
+            columns=['seq_length', 'loss'])
         if dist.get_local_rank() == 0:
             wandb.log(
                 {
-                    f'long_context_perplexity':
+                    f'long_context_loss':
                         wandb.plot.scatter(scatter_lcp,
                                            'seq_length',
-                                           'perplexity',
-                                           title=f'long_context_perplexity')
+                                           'loss',
+                                           title=f'long_context_loss')
                 },
                 step=state.timestamp.batch.value)

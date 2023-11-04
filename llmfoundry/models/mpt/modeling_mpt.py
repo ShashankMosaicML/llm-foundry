@@ -171,7 +171,8 @@ class LanguagePerplexityNoReduce(InContextLearningMetric):
 
         target = target.view(-1)
         logits = logits.view(target.shape[0], -1)
-        perplexity = torch.exp(self.loss_fn(logits, target))
+        # perplexity = torch.exp(self.loss_fn(logits, target))
+        perplexity = self.loss_fn(logits, target)
 
         seq_id = batch['sequence_id']
         seq_id_expanded = (torch.arange(seq_id.shape[-1]).repeat(
