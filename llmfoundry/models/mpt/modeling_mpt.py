@@ -202,7 +202,6 @@ class LanguagePerplexityNoReduce(InContextLearningMetric):
         # Return average loss over entire dataset
         return (self.sum_perp, self.sum_length)
 
-
 class MPTPreTrainedModel(PreTrainedModel):
     config_class = MPTConfig
     base_model_prefix = 'model'
