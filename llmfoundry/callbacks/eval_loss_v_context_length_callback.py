@@ -27,4 +27,4 @@ class LossVsContextLengthEvaluator(Callback):
                                            'loss',
                                            title=f'long_context_loss')
                 },
-                step=state.timestamp.batch.value)
+                commit=True)
