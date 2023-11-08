@@ -22,7 +22,7 @@ class LossVsContextLengthEvaluator(Callback):
             wandb.log(
                 {
                     f'long_context_loss':
-                        wandb.plot.scatter(scatter_lcp,
+                        wandb.plot.line(scatter_lcp,
                                            'seq_length',
                                            'loss',
                                            title=f'long_context_loss')
