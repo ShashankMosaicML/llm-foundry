@@ -21,8 +21,8 @@ class LossVsContextLengthEvaluator(Callback):
         if dist.get_local_rank() == 0:
             wandb.log(
                 {
-                    f'long_context_loss_line_plot':
-                        wandb.plot.line(scatter_lcp,
+                    f'long_context_loss':
+                        wandb.plot.scatter(scatter_lcp,
                                            'seq_length',
                                            'loss',
                                            title=f'long_context_loss')
