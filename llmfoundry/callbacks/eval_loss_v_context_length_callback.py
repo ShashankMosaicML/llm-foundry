@@ -28,3 +28,4 @@ class LossVsContextLengthEvaluator(Callback):
                                            title=f'long_context_loss')
                 },
                 commit=True)
+            wandb.log({"LanguageCrossEntropy": state.eval_metrics['eval']['LanguageCrossEntropy'].compute()})
