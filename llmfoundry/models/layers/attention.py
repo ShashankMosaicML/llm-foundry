@@ -489,7 +489,11 @@ class GroupedQueryAttention(nn.Module):
         norm_type: str = 'low_precision_layernorm',
         fc_type: str = 'torch',
         device: Optional[str] = None,
+        alibi: bool = False,
+        alibi_bias_max: int = 8,
+        alibi_impl: str = 'original',
         bias: bool = True,
+        max_seq_len: Optional[int] = None,
     ):
         super().__init__()
 
@@ -502,6 +506,12 @@ class GroupedQueryAttention(nn.Module):
         self.kv_n_heads = kv_n_heads
 
         self.head_dim = d_model // n_heads
+        self.alibi = alibi
+        self.alibi_bias_max = alibi_bias_max
+        self.alibi_impl = alibi_impl
+        self.learnable_slopes = None
+        if self.alibi and self.alibi_impl == 'learnable':
+            self.learnable_slopes = LearnableSlopes(n_heads=self.n_heads, seq_len=max_seq_len, alibi_bias_max=self.alibi_bias_max, device=device)
 
         if self.kv_n_heads <= 0:
             raise ValueError('kv_n_heads should be greater than zero.')
@@ -592,6 +602,18 @@ class GroupedQueryAttention(nn.Module):
             dtype = query.dtype
             query = self.q_ln(query).to(dtype)
             key = self.k_ln(key).to(dtype)
+        
+        if self.alibi and self.alibi_impl == 'learnable':
+            bsz, seqlen = query.shape[:2]
+            query = query.view(bsz, seqlen, -1, self.head_dim)
+            key = key.view(bsz, seqlen, -1, self.head_dim)
+            # query[:, :, :, :1] = self.learnable_slopes.slopes
+            # key[:, :, :, :1] = self.learnable_slopes.linear_bias
+            query = torch.cat((query[:,:,:,:-1], self.learnable_slopes.slopes.to(query).expand(bsz, seqlen, -1, 1)), dim=-1) # TODO: .to(query) should not be there
+            key = torch.cat((key[:,:,:,:-1], self.learnable_slopes.linear_bias.expand(bsz, -1, self.kv_n_heads, 1)), dim=-1)
+            query = query.view(bsz, seqlen, self.d_model)
+            key = key.view(bsz, seqlen, self.kv_n_heads * self.head_dim)
+            
 
         if rotary_emb_w_meta_info is not None:
             rotary_emb = rotary_emb_w_meta_info['rotary_emb']
@@ -664,7 +686,11 @@ class MultiheadAttention(GroupedQueryAttention):
         norm_type: str = 'low_precision_layernorm',
         fc_type: str = 'torch',
         device: Optional[str] = None,
+        alibi: bool = False,
+        alibi_bias_max: int = 8,
+        alibi_impl: str = 'original',
         bias: bool = True,
+        max_seq_len: Optional[int] = None,
     ):
         super().__init__(
             d_model=d_model,
@@ -678,6 +704,10 @@ class MultiheadAttention(GroupedQueryAttention):
             norm_type=norm_type,
             fc_type=fc_type,
             device=device,
+            alibi=alibi,
+            alibi_bias_max=alibi_bias_max,
+            alibi_impl=alibi_impl,
+            max_seq_len=max_seq_len,
             bias=bias,
         )
 
@@ -701,6 +731,10 @@ class MultiQueryAttention(GroupedQueryAttention):
         norm_type: str = 'low_precision_layernorm',
         fc_type: str = 'torch',
         device: Optional[str] = None,
+        alibi: bool = False,
+        alibi_bias_max: int = 8,
+        alibi_impl: str = 'original',
+        max_seq_len: Optional[int] = None,
         bias: bool = True,
     ):
         super().__init__(
@@ -715,6 +749,10 @@ class MultiQueryAttention(GroupedQueryAttention):
             norm_type=norm_type,
             fc_type=fc_type,
             device=device,
+            alibi=alibi,
+            alibi_bias_max=alibi_bias_max,
+            alibi_impl=alibi_impl,
+            max_seq_len=max_seq_len,
             bias=bias,
         )
 
@@ -805,6 +843,22 @@ def build_alibi_bias(
     alibi_bias = alibi_bias * slopes
     return alibi_bias.to(dtype=dtype)
 
+class LearnableSlopes(torch.nn.Module):
+    """Learnable slopes for Alibi bias.
+
+    This is a wrapper around torch.nn.Parameter to allow for
+    the slopes to be learned.
+    """
+
+    def __init__(self, n_heads: int, seq_len: int, alibi_bias_max: int = 8, device: Optional[torch.device] = None):
+        super().__init__()
+        self.n_heads = n_heads
+        self.alibi_bias_max = alibi_bias_max
+        self.slopes = torch.nn.Parameter(gen_slopes(n_heads=n_heads, alibi_bias_max=alibi_bias_max, device=None).reshape(1, 1, n_heads, 1)) # TODO: device should be device
+        self.register_buffer("linear_bias", -1 * torch.arange(seq_len).view(1, seq_len, 1, 1), persistent=False)
+
+    def forward(self) -> torch.Tensor:
+        return self.slopes
 
 ATTN_CLASS_REGISTRY = {
     'multihead_attention': MultiheadAttention,

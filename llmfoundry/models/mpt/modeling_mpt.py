@@ -146,6 +146,7 @@ class MPTModel(MPTPreTrainedModel):
         self.prefix_lm = config.attn_config['prefix_lm']
         self.attn_uses_sequence_id = config.attn_config['attn_uses_sequence_id']
         self.alibi = config.attn_config['alibi']
+        self.alibi_impl = config.attn_config['alibi_impl']
         self.alibi_bias_max = config.attn_config['alibi_bias_max']
 
         self.learned_pos_emb = config.learned_pos_emb
@@ -210,7 +211,7 @@ class MPTModel(MPTPreTrainedModel):
             self.attn_impl,
             config.n_heads,
             config.max_seq_len,
-            self.alibi,
+            self.alibi and (self.alibi_impl == 'original'),
             prefix_lm=self.prefix_lm,
             causal=self.is_causal,
             use_sequence_id=self.attn_uses_sequence_id,
@@ -257,7 +258,7 @@ class MPTModel(MPTPreTrainedModel):
                     self.config.n_heads,
                     self.config.max_seq_len,
                     causal=self.is_causal,
-                    alibi=self.alibi,
+                    alibi=self.alibi and (self.alibi_impl == 'original'),
                     alibi_bias_max=self.alibi_bias_max,
                 )
             self._attn_bias_initialized = True

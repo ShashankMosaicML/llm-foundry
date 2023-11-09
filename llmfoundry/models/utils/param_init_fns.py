@@ -12,6 +12,7 @@ from torch import nn
 
 from llmfoundry.models.layers.fc import FC_CLASS_REGISTRY
 from llmfoundry.models.layers.norm import NORM_CLASS_REGISTRY
+from llmfoundry.models.layers.attention import LearnableSlopes
 
 try:
     import transformer_engine.pytorch as te
@@ -189,7 +190,8 @@ def generic_param_init_fn_(
 
         with torch.no_grad():
             module.fc2_weight.div_(div_is_residual)  # type: ignore
-
+    elif isinstance(module, LearnableSlopes):
+        pass # TODO: initialize!
     else:
         for _ in module.parameters(recurse=False):
             # raise error if uninitialized module has any parameters

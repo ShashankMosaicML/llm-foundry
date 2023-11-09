@@ -92,6 +92,7 @@ class MPTConfig(PretrainedConfig):
                     Defaults to ``False`` meaning any provided `sequence_id` will be ignored.
                 alibi (bool): Whether to use the alibi bias instead of position embeddings.
                 alibi_bias_max (int): The maximum value of the alibi bias.
+                alibi_impl (str): ALiBi implementation - can be original or learable.
                 rope (bool): Whether to use rotary positional embeddings.
                 rope_theta (int): The base frequency for rope.
                 rope_impl (str): The implementation of rope to use. One of 'hf' (to use the implementation from https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py) or 'dail' (to use the implementation from https://github.com/Dao-AILab/flash-attention/blob/main/flash_attn/layers/rotary.py).
@@ -210,7 +211,15 @@ class MPTConfig(PretrainedConfig):
                 'attn_impl'] not in ['torch', 'triton']:
             raise NotImplementedError(
                 'prefix_lm only implemented with torch and triton attention.')
-        if self.attn_config['alibi'] and self.attn_config['attn_impl'] not in [
+        if self.attn_config['alibi'] and self.attn_config['alibi_impl'] not in ['original', 'learnable']:
+            raise NotImplementedError(
+                'if using alibi, alibi_impl should be either original or learnable.')
+        if self.attn_config['attn_uses_sequence_id'] and self.attn_config[
+                'attn_impl'] not in ['torch', 'triton']:
+            raise NotImplementedError(
+                'attn_uses_sequence_id only implemented with torch and triton attention.'
+            )
+        if self.attn_config['alibi'] and (self.attn_config['alibi_impl'] == 'original') and self.attn_config['attn_impl'] not in [
                 'torch', 'triton'
         ]:
             raise NotImplementedError(

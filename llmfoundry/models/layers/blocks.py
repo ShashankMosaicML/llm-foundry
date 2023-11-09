@@ -23,6 +23,7 @@ attn_config_defaults: Dict = {
     'attn_uses_sequence_id': False,
     'alibi': False,
     'alibi_bias_max': 8,
+    'alibi_impl': 'original',
     'rope': False,
     'rope_theta': 10000,
     'rope_impl': 'dail',
@@ -52,6 +53,7 @@ class MPTBlock(nn.Module):
         fc_type: str = 'torch',
         device: Optional[str] = None,
         no_bias: bool = False,
+        max_seq_len: Optional[int] = None,
         **kwargs: Any,
     ):
         if attn_config is None:
@@ -71,8 +73,8 @@ class MPTBlock(nn.Module):
 
         # necessary to avoid passing extraneous args into attn_class while allowing the use of **kwargs
         args_to_exclude_in_attn_class = {
-            'attn_type', 'prefix_lm', 'alibi', 'attn_uses_sequence_id',
-            'alibi_bias_max', 'rope', 'rope_theta', 'rope_impl',
+            'attn_type', 'prefix_lm', 'attn_uses_sequence_id',
+            'rope', 'rope_theta', 'rope_impl',
             'rope_dail_config', 'rope_hf_config'
         }
         attn_config_subset_for_attn_class = {
@@ -87,6 +89,7 @@ class MPTBlock(nn.Module):
             n_heads=n_heads,
             fc_type=fc_type,
             device=device,
+            max_seq_len=max_seq_len,
             **attn_config_subset_for_attn_class,
             bias=not no_bias,
         )
