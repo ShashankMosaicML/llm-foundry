@@ -609,7 +609,7 @@ class GroupedQueryAttention(nn.Module):
             key = key.view(bsz, seqlen, -1, self.head_dim)
             # query[:, :, :, :1] = self.learnable_slopes.slopes
             # key[:, :, :, :1] = self.learnable_slopes.linear_bias
-            query = torch.cat((query[:,:,:,:-1], self.learnable_slopes.slopes.expand(bsz, seqlen, -1, 1)), dim=-1)
+            query = torch.cat((query[:,:,:,:-1], self.learnable_slopes.slopes.to(query).expand(bsz, seqlen, -1, 1)), dim=-1)
             key = torch.cat((key[:,:,:,:-1], self.learnable_slopes.linear_bias.expand(bsz, -1, self.kv_n_heads, 1)), dim=-1)
             query = query.view(bsz, seqlen, self.d_model)
             key = key.view(bsz, seqlen, self.kv_n_heads * self.head_dim)
@@ -854,8 +854,8 @@ class LearnableSlopes(torch.nn.Module):
         super().__init__()
         self.n_heads = n_heads
         self.alibi_bias_max = alibi_bias_max
-        self.slopes = torch.nn.Parameter(gen_slopes(n_heads=n_heads, alibi_bias_max=alibi_bias_max, device=None).reshape(1, 1, n_heads, 1).to(dtype=torch.bfloat16)) # TODO: device should be device, dtype should not be hardcoded
-        self.register_buffer("linear_bias", torch.arange(-seq_len//2, seq_len//2).reshape(1, seq_len, 1, 1).to(dtype=torch.bfloat16), persistent=False) # TODO: dtype should not be hardcoded
+        self.slopes = torch.nn.Parameter(gen_slopes(n_heads=n_heads, alibi_bias_max=alibi_bias_max, device=None).reshape(1, 1, n_heads, 1)) # TODO: device should be device
+        self.register_buffer("linear_bias", torch.arange(-seq_len//2, seq_len//2).reshape(1, seq_len, 1, 1), persistent=False)
     def forward(self) -> torch.Tensor:
         return self.slopes
 
