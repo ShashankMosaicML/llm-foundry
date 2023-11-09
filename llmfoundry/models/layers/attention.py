@@ -854,9 +854,9 @@ class LearnableSlopes(torch.nn.Module):
         super().__init__()
         self.n_heads = n_heads
         self.alibi_bias_max = alibi_bias_max
-        self.slopes = torch.nn.Parameter(gen_slopes(n_heads=n_heads, alibi_bias_max=alibi_bias_max, device=None).reshape(1, 1, n_heads, 1)) # TODO: device should be device
-        self.register_buffer("linear_bias", -1 * torch.arange(seq_len).view(1, seq_len, 1, 1), persistent=False)
-
+        adjust_factor = 8
+        self.slopes = torch.nn.Parameter(adjust_factor*gen_slopes(n_heads=n_heads, alibi_bias_max=alibi_bias_max, device=None).reshape(1, 1, n_heads, 1)) # TODO: device should be device
+        self.register_buffer("linear_bias", (torch.arange(-seq_len//2, seq_len//2)/adjust_factor).view(1, seq_len, 1, 1), persistent=False)
     def forward(self) -> torch.Tensor:
         return self.slopes
 
