@@ -864,7 +864,7 @@ class LearnableSlopes(torch.nn.Module):
         init_biases = 2*init_biases * 6 # Max val of qkv clipping
 
         self.slopes = torch.nn.Parameter(init_slopes) 
-        self.register_buffer("linear_bias", init_biases, persistent=False)
+        self.linear_bias = init_biases
         # self.register_buffer("linear_bias", torch.zeros(seq_len).reshape(1, seq_len, 1, 1), persistent=False)
     def forward(self) -> torch.Tensor:
         return self.slopes
