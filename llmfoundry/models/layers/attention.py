@@ -609,8 +609,8 @@ class GroupedQueryAttention(nn.Module):
             key = key.view(bsz, seqlen, -1, self.head_dim)
             # query[:, :, :, :1] = self.learnable_slopes.slopes
             # key[:, :, :, :1] = self.learnable_slopes.linear_bias
-            query = torch.cat((query[:,:,:,:-1], self.learnable_slopes.slopes.to(query).expand(bsz, seqlen, -1, 1)), dim=-1)
-            key = torch.cat((key[:,:,:,:-1], self.learnable_slopes.linear_bias.expand(bsz, -1, self.kv_n_heads, 1)), dim=-1)
+            query = torch.cat((query[:,:,:,:-1], self.learnable_slopes.slopes.to(query).expand(bsz, seqlen, -1, 1)), dim=-1) # TODO: The .to(query) should be removed
+            key = torch.cat((key[:,:,:,:-1], self.learnable_slopes.linear_bias.to(key).expand(bsz, -1, self.kv_n_heads, 1)), dim=-1) # TODO: The .to(key) should be removed
             query = query.view(bsz, seqlen, self.d_model)
             key = key.view(bsz, seqlen, self.kv_n_heads * self.head_dim)
             
