@@ -511,7 +511,7 @@ class GroupedQueryAttention(nn.Module):
         self.alibi_impl = alibi_impl
         self.learnable_slopes = None
         if self.alibi and self.alibi_impl == 'learnable':
-            self.learnable_slopes = LearnableSlopes(n_heads=self.n_heads, seq_len=max_seq_len, alibi_bias_max=self.alibi_bias_max, device=device)
+            self.learnable_slopes = LearnableSlopes(n_heads=self.n_heads, seq_len=max_seq_len, head_dim = self.head_dim, alibi_bias_max=self.alibi_bias_max, device=device)
 
         if self.kv_n_heads <= 0:
             raise ValueError('kv_n_heads should be greater than zero.')
@@ -850,7 +850,7 @@ class LearnableSlopes(torch.nn.Module):
     the slopes to be learned.
     """
 
-    def __init__(self, n_heads: int, seq_len: int, alibi_bias_max: int = 8, device: Optional[torch.device] = None):
+    def __init__(self, n_heads: int, seq_len: int, head_dim: int, alibi_bias_max: int = 8, device: Optional[torch.device] = None):
         super().__init__()
         self.n_heads = n_heads
         self.alibi_bias_max = alibi_bias_max
@@ -861,7 +861,7 @@ class LearnableSlopes(torch.nn.Module):
         # init_biases = init_biases * 288 # Scaling
 
         # self.slopes = torch.nn.Parameter(init_slopes) 
-        self.slopes = init_slopes
+        self.slopes = init_slopes * math.sqrt(head_dim) # multiplying with sqrt(head_dim) to make up for later normalization during attention computation
         self.linear_bias = init_biases
         # self.register_buffer("linear_bias", torch.zeros(seq_len).reshape(1, seq_len, 1, 1), persistent=False)
     def forward(self) -> torch.Tensor:
