@@ -622,7 +622,6 @@ class GroupedQueryAttention(nn.Module):
                 # The following two transposes should be removed once the transformers library allows for the specification of the dimension for heads in the call to apply_rotary_pos_emb
                 query = query.transpose(1, 2)
                 key = key.transpose(1, 2)
-
             query = query.view(bsz, seqlen, self.d_model)
             key = key.view(bsz, seqlen, self.kv_n_heads * self.head_dim)
 
@@ -745,6 +744,7 @@ def build_attn_bias(
     causal: bool = False,
     alibi: bool = False,
     alibi_bias_max: int = 8,
+    alibi_scaling_factor: float = 1.0,
 ) -> Optional[torch.Tensor]:
     if attn_impl == 'flash':
         return None
@@ -760,6 +760,7 @@ def build_attn_bias(
                     alibi_bias_max=alibi_bias_max,
                     device=device,
                     dtype=dtype,
+                    alibi_scaling_factor=alibi_scaling_factor,
                 ))
         return attn_bias
     else:
@@ -768,7 +769,8 @@ def build_attn_bias(
 
 def gen_slopes(n_heads: int,
                alibi_bias_max: int = 8,
-               device: Optional[torch.device] = None) -> torch.Tensor:
+               device: Optional[torch.device] = None,
+               alibi_scaling_factor: float = 1.0) -> torch.Tensor:
     _n_heads = 2**math.ceil(math.log2(n_heads))
     m = torch.arange(1, _n_heads + 1, dtype=torch.float32, device=device)
     m = m.mul(alibi_bias_max / _n_heads)
@@ -779,8 +781,7 @@ def gen_slopes(n_heads: int,
         # Huggingface and FasterTransformer calculate slopes normally,
         # then return this strided concatenation of slopes
         slopes = torch.concat([slopes[1::2], slopes[::2]])[:n_heads]
-
-    return slopes.view(1, n_heads, 1, 1)
+    return slopes.view(1, n_heads, 1, 1)/alibi_scaling_factor
 
 
 def build_alibi_bias(
@@ -790,6 +791,7 @@ def build_alibi_bias(
     alibi_bias_max: int = 8,
     device: Optional[torch.device] = None,
     dtype: Optional[torch.dtype] = None,
+    alibi_scaling_factor: float = 1.0,
 ) -> torch.Tensor:
     alibi_bias = torch.arange(1 - seq_len, 1, dtype=torch.int32,
                               device=device).view(1, 1, 1, seq_len)
@@ -801,7 +803,7 @@ def build_alibi_bias(
                 1, 1, seq_len, 1)
         alibi_bias = alibi_bias.abs().mul(-1)
 
-    slopes = gen_slopes(n_heads, alibi_bias_max, device=device)
+    slopes = gen_slopes(n_heads, alibi_bias_max, device=device, alibi_scaling_factor=alibi_scaling_factor)
     alibi_bias = alibi_bias * slopes
     return alibi_bias.to(dtype=dtype)
 

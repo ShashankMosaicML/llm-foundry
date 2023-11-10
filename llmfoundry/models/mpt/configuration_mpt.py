@@ -228,7 +228,7 @@ class MPTConfig(PretrainedConfig):
         if self.attn_config['rope'] and (
                 self.attn_config['rope_impl']
                 == 'hf') and self.attn_config['rope_hf_config']['type'] not in [
-                    'no_scaling', 'linear', 'dynamic'
+                    'no_scaling', 'linear', 'dynamic', 'yarn'
                 ]:
             raise ValueError(
                 'If using hf implementation of rope, the type should be one of "no_scaling", "linear" or "dynamic".'

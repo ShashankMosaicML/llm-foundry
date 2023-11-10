@@ -22,6 +22,7 @@ attn_config_defaults: Dict = {
     'prefix_lm': False,
     'attn_uses_sequence_id': False,
     'alibi': False,
+    'alibi_scaling_factor': 1.0,
     'alibi_bias_max': 8,
     'rope': False,
     'rope_theta': 10000,
@@ -71,7 +72,7 @@ class MPTBlock(nn.Module):
 
         # necessary to avoid passing extraneous args into attn_class while allowing the use of **kwargs
         args_to_exclude_in_attn_class = {
-            'attn_type', 'prefix_lm', 'alibi', 'attn_uses_sequence_id',
+            'attn_type', 'prefix_lm', 'alibi', 'alibi_scaling_factor', 'attn_uses_sequence_id',
             'alibi_bias_max', 'rope', 'rope_theta', 'rope_impl',
             'rope_dail_config', 'rope_hf_config'
         }
