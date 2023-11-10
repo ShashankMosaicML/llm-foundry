@@ -609,7 +609,7 @@ class GroupedQueryAttention(nn.Module):
             key = key.view(bsz, seqlen, -1, self.head_dim)
             # query[:, :, :, :1] = self.learnable_slopes.slopes
             # key[:, :, :, :1] = self.learnable_slopes.linear_bias
-            query = torch.cat((query[:,:,:,:-1], self.learnable_slopes.slopes.to(query).expand(bsz, seqlen, -1, 1)), dim=-1) # TODO: The .to(query) should be removed
+            query = torch.cat((query[:,:,:,:-1], self.learnable_slopes().to(query).expand(bsz, seqlen, -1, 1)), dim=-1) # TODO: The .to(query) should be removed
             key = torch.cat((key[:,:,:,:-1], self.learnable_slopes.linear_bias.to(key).expand(bsz, -1, self.kv_n_heads, 1)), dim=-1) # TODO: The .to(key) should be removed
             query = query.view(bsz, seqlen, self.d_model)
             key = key.view(bsz, seqlen, self.kv_n_heads * self.head_dim)
@@ -860,8 +860,8 @@ class LearnableSlopes(torch.nn.Module):
         # init_biases = 2*init_biases/seq_len # Normalizing to be within [-1, 1]
         # init_biases = init_biases * 288 # Scaling
 
-        # self.slopes = torch.nn.Parameter(init_slopes) 
-        self.slopes = init_slopes * math.sqrt(head_dim) # multiplying with sqrt(head_dim) to make up for later normalization during attention computation
+        self.slopes = torch.nn.Parameter(init_slopes * math.sqrt(head_dim))  # multiplying with sqrt(head_dim) to make up for later normalization during attention computation
+        # self.slopes = init_slopes * math.sqrt(head_dim) # multiplying with sqrt(head_dim) to make up for later normalization during attention computation
         self.linear_bias = init_biases
         # self.register_buffer("linear_bias", torch.zeros(seq_len).reshape(1, seq_len, 1, 1), persistent=False)
     def forward(self) -> torch.Tensor:
