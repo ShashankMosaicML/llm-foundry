@@ -863,7 +863,6 @@ class LearnableSlopes(torch.nn.Module):
 
         self.slopes = torch.nn.Parameter(init_slopes) 
         self.linear_bias = init_biases
-        breakpoint()
         # self.register_buffer("linear_bias", torch.zeros(seq_len).reshape(1, seq_len, 1, 1), persistent=False)
     def forward(self) -> torch.Tensor:
         return self.slopes
