@@ -860,8 +860,8 @@ class LearnableSlopes(torch.nn.Module):
         # init_biases = 2*init_biases/seq_len # Normalizing to be within [-1, 1]
         # init_biases = init_biases * 288 # Scaling
 
-        self.slopes = torch.nn.Parameter(init_slopes)
-        # self.slopes = init_slopes
+        # self.slopes = torch.nn.Parameter(init_slopes)
+        self.slopes = init_slopes
         self.linear_bias = init_biases * math.sqrt(head_dim) # multiplying with sqrt(head_dim) to make up for later normalization during attention computation
         # self.register_buffer("linear_bias", torch.zeros(seq_len).reshape(1, seq_len, 1, 1), persistent=False)
     def forward(self) -> torch.Tensor:
