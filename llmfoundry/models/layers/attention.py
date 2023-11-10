@@ -855,7 +855,7 @@ class LearnableSlopes(torch.nn.Module):
         self.n_heads = n_heads
         self.alibi_bias_max = alibi_bias_max
         init_slopes = gen_slopes(n_heads=n_heads, alibi_bias_max=alibi_bias_max, device=None).reshape(1, 1, n_heads, 1) # TODO: device should be device
-        init_biases = torch.arange(-seq_len//2, seq_len//2).reshape(1, seq_len, 1, 1)
+        init_biases = torch.arange(-seq_len, 0).reshape(1, seq_len, 1, 1)
 
         # init_biases = 2*init_biases/seq_len # Normalizing to be within [-1, 1]
         # init_biases = init_biases * 288 # Scaling
