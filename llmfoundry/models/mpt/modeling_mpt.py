@@ -125,7 +125,7 @@ def gen_rotary_embedding(rope_head_dim: int, rope_impl: str, rope_theta: int,
         elif rope_hf_config['type'] == 'dynamic':
             return HFDynamicNTKScalingRotaryEmbedding(
                 rope_head_dim,
-                max_position_embeddings=max_seq_len,
+                max_position_embeddings=rope_hf_config['original_max_position_embeddings'],
                 base=rope_theta,
                 scaling_factor=rope_hf_config['factor'],
                 device=
