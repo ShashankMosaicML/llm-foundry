@@ -26,7 +26,7 @@ from composer.models import HuggingFaceModel
 from composer.utils import dist
 
 from llmfoundry.models.layers.attention import is_flash_v2_installed
-from llmfoundry.models.layers.yarn import LlamaYaRNScaledRotaryEmbedding
+from llmfoundry.models.layers.yarn import LlamaYaRNScaledRotaryEmbedding, _yarn_get_mscale
 
 if is_flash_v2_installed():
     try:  # This try...except is needed because transformers requires it despite the 'if' statement above
@@ -592,6 +592,9 @@ class MPTModel(MPTPreTrainedModel):
             sequence_id=sequence_id,
         )
 
+        alibi_temp_scaling = None
+        if self.alibi and self.alibi_scaling_factor > 1.0:
+            alibi_temp_scaling = float(_yarn_get_mscale(self.alibi_scaling_factor) * 1.0) # The 1.0 is something called the attn_factor in the YaRN implementation
         # initialize the past key values cache if it should be used
         presents = () if use_cache else None
         if use_cache and past_key_values is None:
@@ -611,6 +614,7 @@ class MPTModel(MPTPreTrainedModel):
                 past_key_value=past_key_value,
                 attn_bias=attn_bias,
                 rotary_emb_w_meta_info=rotary_emb_w_meta_info,
+                alibi_temp_scaling=alibi_temp_scaling,
                 attention_mask=attention_mask,
                 is_causal=self.is_causal,
                 output_attentions=bool(output_attentions),

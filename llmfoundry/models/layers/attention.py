@@ -15,6 +15,7 @@ from torch import nn
 
 from llmfoundry.models.layers.fc import FC_CLASS_REGISTRY
 from llmfoundry.models.layers.norm import NORM_CLASS_REGISTRY
+from llmfoundry.models.layers.yarn import _yarn_get_mscale
 
 
 def is_flash_v2_installed(v2_version: str = '2.0.0'):
@@ -567,6 +568,7 @@ class GroupedQueryAttention(nn.Module):
         attn_bias: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         rotary_emb_w_meta_info: Optional[dict] = None,
+        alibi_temp_scaling: Optional[float] = None,
         is_causal: bool = True,
         needs_weights: bool = False,
     ) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[tuple[
@@ -624,6 +626,10 @@ class GroupedQueryAttention(nn.Module):
                 key = key.transpose(1, 2)
             query = query.view(bsz, seqlen, self.d_model)
             key = key.view(bsz, seqlen, self.kv_n_heads * self.head_dim)
+
+        if alibi_temp_scaling is not None:
+            query = query*alibi_temp_scaling
+            key = key*alibi_temp_scaling
 
         context, attn_weights, past_key_value = self.attn_fn(
             query,
@@ -774,6 +780,8 @@ def gen_slopes(n_heads: int,
     _n_heads = 2**math.ceil(math.log2(n_heads))
     m = torch.arange(1, _n_heads + 1, dtype=torch.float32, device=device)
     m = m.mul(alibi_bias_max / _n_heads)
+    log_s = math.log2(alibi_scaling_factor) # log2 because we do torch.pow(2, m) later
+    m = m + ((m-m[0]) * log_s / (m[-1]-m[0]))
     slopes = (1. / torch.pow(2, m))
 
     if _n_heads != n_heads:
@@ -781,7 +789,10 @@ def gen_slopes(n_heads: int,
         # Huggingface and FasterTransformer calculate slopes normally,
         # then return this strided concatenation of slopes
         slopes = torch.concat([slopes[1::2], slopes[::2]])[:n_heads]
-    return slopes.view(1, n_heads, 1, 1)/alibi_scaling_factor
+    alibi_temp_scaling = float(_yarn_get_mscale(alibi_scaling_factor) * 1.0) # The 1.0 is something called the attn_factor in the YaRN implementation
+    alibi_temp_scaling = alibi_temp_scaling**2
+    slopes = slopes * alibi_temp_scaling
+    return slopes.view(1, n_heads, 1, 1)
 
 
 def build_alibi_bias(
