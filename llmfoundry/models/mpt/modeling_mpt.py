@@ -194,8 +194,8 @@ class LanguagePerplexityNoReduce(InContextLearningMetric):
             0, 1).to(seq_id) == seq_id.unsqueeze(-2))
         seq_id_expanded = torch.nn.functional.one_hot(seq_id, num_classes=seq_len).transpose(-1,-2)
         assert torch.all(seq_id_expanded == seq_id_expanded_old.long()) # just temporary, for testing
-        seq_id_expanded = (seq_id_expanded.cumsum(dim=-1) - 1) * seq_id_expanded
-        tok_ids = seq_id_expanded.sum(dim=-2)
+        tok_ids = (seq_id_expanded.cumsum(dim=-1) - 1) * seq_id_expanded
+        tok_ids = tok_ids.sum(dim=-2)
         tok_ids_expanded_old = (torch.arange(seq_len).repeat(seq_len, 1).transpose(
             0, 1).to(tok_ids) == tok_ids.unsqueeze(-2))
         tok_ids_expanded = torch.nn.functional.one_hot(tok_ids, num_classes=seq_len).transpose(-1,-2)
