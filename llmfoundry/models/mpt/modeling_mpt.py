@@ -180,6 +180,9 @@ class LanguagePerplexityNoReduce(InContextLearningMetric):
         else:
             raise Exception(
                 f'Type {type(output)} for the output is unsupported.')
+        if 'sequence_id' not in batch:
+            warnings.warn('Sequence id information not available, cannot compute  LanguagePerplexityNoReduce.')
+            return
         bsz, seq_len = target.shape
         target = target.view(-1)
         logits = logits.view(target.shape[0], -1)
