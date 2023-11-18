@@ -190,16 +190,10 @@ class LanguagePerplexityNoReduce(InContextLearningMetric):
         perplexity = self.loss_fn(logits, target)
 
         seq_id = batch['sequence_id']
-        seq_id_expanded_old = (torch.arange(seq_len).repeat(seq_len, 1).transpose(
-            0, 1).to(seq_id) == seq_id.unsqueeze(-2))
         seq_id_expanded = torch.nn.functional.one_hot(seq_id, num_classes=seq_len).transpose(-1,-2) == 1
-        assert torch.all(seq_id_expanded == seq_id_expanded_old) # just temporary, for testing, remove seq_id_expanded_old when removing this line
         tok_ids = (seq_id_expanded.cumsum(dim=-1) - 1) * seq_id_expanded
         tok_ids = tok_ids.sum(dim=-2)
-        tok_ids_expanded_old = (torch.arange(seq_len).repeat(seq_len, 1).transpose(
-            0, 1).to(tok_ids) == tok_ids.unsqueeze(-2))
         tok_ids_expanded = torch.nn.functional.one_hot(tok_ids, num_classes=seq_len).transpose(-1,-2) == 1
-        assert torch.all(tok_ids_expanded_old == tok_ids_expanded) # just temporary, for testing, remove tok_ids_expanded_old when removing this line
         ignore_mask = (target.view(bsz, seq_len) == self.ignore_index)
         ignore_mask = ignore_mask.unsqueeze(1).expand(-1, seq_len, -1)
         tok_ids_expanded = torch.where(ignore_mask, False, tok_ids_expanded)
