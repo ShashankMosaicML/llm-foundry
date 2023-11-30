@@ -18,7 +18,7 @@ class LossVsContextLengthEvaluator(Callback):
         scatter_lcp = wandb.Table(
             data=[[i, b] for (i, b) in enumerate(avg_perp.tolist())],
             columns=['seq_length', 'loss'])
-        if dist.get_local_rank() == 0:
+        if dist.get_global_rank() == 0:
             wandb.log(
                 {
                     f'long_context_loss':
