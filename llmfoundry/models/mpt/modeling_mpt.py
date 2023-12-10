@@ -25,6 +25,7 @@ from composer.models import HuggingFaceModel
 from composer.utils import dist
 
 from llmfoundry.models.layers.attention import is_flash_v2_installed
+from llmfoundry.models.layers.yarn import LlamaYaRNScaledRotaryEmbedding
 
 if is_flash_v2_installed():
     try:  # This try...except is needed because transformers requires it despite the 'if' statement above
@@ -124,8 +125,19 @@ def gen_rotary_embedding(rope_head_dim: int, rope_impl: str, rope_theta: int,
             return HFDynamicNTKScalingRotaryEmbedding(
                 rope_head_dim,
                 max_position_embeddings=max_seq_len,
+                max_position_embeddings=rope_hf_config['original_max_position_embeddings'],
                 base=rope_theta,
                 scaling_factor=rope_hf_config['factor'],
+                device=
+                'cpu'  # FSDP does not materialize modules with meta buffers, hence device is set to cpu
+            )
+        elif rope_hf_config['type'] == 'yarn':
+            return LlamaYaRNScaledRotaryEmbedding(
+                rope_head_dim,
+                max_position_embeddings=max_seq_len,
+                base=rope_theta,
+                scale=rope_hf_config['factor'],
+                original_max_position_embeddings=rope_hf_config['original_max_position_embeddings'],
                 device=
                 'cpu'  # FSDP does not materialize modules with meta buffers, hence device is set to cpu
             )
