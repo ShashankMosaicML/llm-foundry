@@ -478,6 +478,9 @@ class MPTModel(MPTPreTrainedModel):
         use_cache: Optional[bool] = None,
         inputs_embeds: Optional[torch.Tensor] = None,
     ) -> BaseModelOutputWithPast:
+        if not self.attn_uses_sequence_id:
+            orig_batch_size = input_ids.shape[0]
+            input_ids = input_ids.view(1, -1)
         return_dict = (return_dict
                        if return_dict is not None else self.config.return_dict)
         use_cache = (use_cache
@@ -658,6 +661,8 @@ class MPTModel(MPTPreTrainedModel):
             assert all_hidden_states is not None  # pyright
             all_hidden_states = all_hidden_states + (x,)
 
+        if not self.attn_uses_sequence_id:
+            x = x.view(orig_batch_size, -1, x.shape[-1])
         return BaseModelOutputWithPast(
             last_hidden_state=x,
             past_key_values=presents,

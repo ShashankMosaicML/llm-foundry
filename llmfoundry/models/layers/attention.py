@@ -261,11 +261,6 @@ def flash_attn_fn(
             key_padding_mask = torch.ones_like(key[:, :, 0], dtype=torch.bool)
         query_padding_mask = key_padding_mask[:, -query.size(1):]
         unpadding_function = bert_padding.unpad_input
-        def concat_all_unpad_fn(x, y):
-            del y
-            concated_x = torch.reshape(x, (-1, x.size(-1)))
-            return concated_x, torch.arange(concated_x.size(0)).to(device=concated_x.device), torch.tensor([0, concated_x.size(0)]).to(dtype=torch.int32, device=concated_x.device), concated_x.size(0)
-        unpadding_function = concat_all_unpad_fn
     else:
         key_padding_mask = attention_mask_in_length
         query_padding_mask = attention_mask_in_length
