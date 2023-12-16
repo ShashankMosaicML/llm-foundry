@@ -483,6 +483,8 @@ class MPTModel(MPTPreTrainedModel):
         query_long_dist_lin = -2*tok_id[:, :, None]*query_head_factor
         query_long_dist_quad_1 = torch.square(tok_id[:, :, None]*query_head_factor)
         query_long_dist = -1*torch.stack([query_long_dist_quad_0, query_long_dist_lin, query_long_dist_quad_1], dim=-1).to(query_alibi)
+        query_long_dist = query_long_dist / 8
+        key_long_dist = key_long_dist / 8
         # product_0 = self.testing_custom_bias(query_alibi, key_alibi, ratio_q_kv)
         # product_1 = self.testing_custom_bias(query_long_dist, key_long_dist, ratio_q_kv)
         # breakpoint()
