@@ -478,20 +478,18 @@ class MPTModel(MPTPreTrainedModel):
 
         key_long_dist = torch.stack([torch.square(tok_id), tok_id, torch.ones_like(tok_id)], dim=-2).to(key_alibi).permute(0,2,1)[:,:, None, :]
 
-        query_head_factor = ((1+2*torch.arange(ratio_q_kv))/(2*ratio_q_kv)).to(tok_id)[None, None, :]
+        query_head_factor = ((1+2*torch.arange(ratio_q_kv).to(tok_id))/(2*ratio_q_kv))[None, None, :]
         query_long_dist_quad_0 = torch.ones_like(tok_id)[:, :, None].expand(-1, -1, ratio_q_kv)
         query_long_dist_lin = -2*tok_id[:, :, None]*query_head_factor
         query_long_dist_quad_1 = torch.square(tok_id[:, :, None]*query_head_factor)
         query_long_dist = -1*torch.stack([query_long_dist_quad_0, query_long_dist_lin, query_long_dist_quad_1], dim=-1).to(query_alibi)
-        # self.testing_custom_bias(query_alibi, key_alibi, ratio_q_kv)
-        # self.testing_custom_bias(query_long_dist, key_long_dist, ratio_q_kv)
+        # product_0 = self.testing_custom_bias(query_alibi, key_alibi, ratio_q_kv)
+        # product_1 = self.testing_custom_bias(query_long_dist, key_long_dist, ratio_q_kv)
+        # breakpoint()
         return {'query_alibi': query_alibi, 'key_alibi': key_alibi, 'query_long_dist': query_long_dist, 'key_long_dist': key_long_dist}
         
     def testing_custom_bias(self, query, key, ratio_q_kv):
-        query = query.permute(0, 2, 1, 3)
-        key = key.permute(0, 2, 3, 1).repeat(1, ratio_q_kv, 1, 1)
-        product = torch.matmul(query, key)
-        breakpoint()
+        return torch.matmul(query.permute(0, 2, 1, 3), key.permute(0, 2, 3, 1).repeat(1, ratio_q_kv, 1, 1))
 
     def forward(
         self,
