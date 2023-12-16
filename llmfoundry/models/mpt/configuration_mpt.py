@@ -221,10 +221,10 @@ class MPTConfig(PretrainedConfig):
             raise NotImplementedError(
                 'prefix_lm only implemented with torch and triton attention.')
         if self.attn_config['alibi'] and self.attn_config['attn_impl'] not in [
-                'torch', 'triton'
+                'torch', 'triton', 'flash'
         ]:
             raise NotImplementedError(
-                'alibi only implemented with torch and triton attention.')
+                'alibi only implemented with torch, flash and triton attention.')
         if self.attn_config['attn_uses_sequence_id'] and not (
                 self.attn_config['attn_impl'] in ['torch', 'triton'] or
             (self.attn_config['attn_impl'] == 'flash' and

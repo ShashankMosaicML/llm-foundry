@@ -614,15 +614,40 @@ class GroupedQueryAttention(nn.Module):
             query = query.view(bsz, seqlen, -1, self.head_dim)
             key = key.view(bsz, seqlen, -1, self.head_dim)
 
+            q_kv_ratio = self.n_heads // self.kv_n_heads
+            query_rope = query[:,:,:q_kv_ratio * math.floor((self.kv_n_heads-1)/2),:]
+            key_rope = key[:,:,:math.floor((self.kv_n_heads-1)/2),:]
+
             if rotary_emb_w_meta_info['impl'] == 'dail':
                 value = value.view(bsz, seqlen, -1, self.head_dim)
+                value_rope = value[:,:,:math.floor((self.kv_n_heads-1)/2),:]
 
-                kv = torch.stack([key, value], dim=2)
-                query, kv = rotary_emb(query,
-                                       kv,
+                kv_rope = torch.stack([key_rope, value_rope], dim=2)
+                query_rope, kv_rope = rotary_emb(query_rope,
+                                       kv_rope,
                                        seqlen_offset=offset_info,
                                        max_seqlen=seq_len)
-                [key, value] = torch.unbind(kv, dim=2)
+                [key_rope, value_rope] = torch.unbind(kv_rope, dim=2)
+
+                query_alibi = query[:,:,q_kv_ratio * math.floor((self.kv_n_heads-1)/2):-q_kv_ratio,:-1]
+                key_alibi = key[:,:,math.floor((self.kv_n_heads-1)/2):-1,:-1]
+                value_alibi = value[:,:,math.floor((self.kv_n_heads-1)/2):-1,:]
+
+                query_alibi = torch.concat([query_alibi, rotary_emb_w_meta_info['custom_biases']['query_alibi']], dim=-1)
+                key_alibi = torch.concat([key_alibi, rotary_emb_w_meta_info['custom_biases']['key_alibi']], dim=-1)
+
+                query_long_dist = query[:,:,-q_kv_ratio:,:-2]
+                key_long_dist = key[:,:,-1:,:-2]
+                value_long_dist = value[:,:,-1:,:]
+
+                query_long_dist = torch.concat([query_long_dist, rotary_emb_w_meta_info['custom_biases']['query_long_dist']], dim=-1)
+                key_long_dist = torch.concat([key_long_dist, rotary_emb_w_meta_info['custom_biases']['key_long_dist']], dim=-1)
+
+                query = torch.concat([query_rope, query_alibi, query_long_dist], dim=2)
+                key = torch.concat([key_rope, key_alibi, key_long_dist], dim=2)
+                value = torch.concat([value_rope, value_alibi, value_long_dist], dim=2)
+
+                attn_bias=None
 
                 value = value.view(bsz, seqlen, self.kv_n_heads * self.head_dim)
             elif rotary_emb_w_meta_info['impl'] == 'hf':
@@ -750,7 +775,10 @@ def attn_bias_shape(
         prefix_lm: bool, causal: bool,
         use_sequence_id: bool) -> Optional[tuple[int, int, int, int]]:
     if attn_impl == 'flash':
-        return None
+        if alibi:
+            if (prefix_lm or not causal):
+                return (1, n_heads, seq_len, seq_len)
+            return (1, n_heads, 1, seq_len)
     elif attn_impl in ['torch', 'triton']:
         if alibi:
             if (prefix_lm or not causal) or use_sequence_id:
@@ -772,9 +800,7 @@ def build_attn_bias(
     alibi: bool = False,
     alibi_bias_max: int = 8,
 ) -> Optional[torch.Tensor]:
-    if attn_impl == 'flash':
-        return None
-    elif attn_impl in ['torch', 'triton']:
+    if attn_impl in ['torch', 'triton', 'flash']:
         if alibi:
             # in place add alibi to attn bias
             device, dtype = attn_bias.device, attn_bias.dtype

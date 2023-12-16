@@ -375,8 +375,8 @@ class MPTModel(MPTPreTrainedModel):
 
         # flash does not support prefix_lm and will incorporate any
         # attention_mask inside the attention module
-        if self.attn_impl == 'flash':
-            return self.attn_bias, attention_mask
+        # if self.attn_impl == 'flash':
+        #     return self.attn_bias, attention_mask
 
         if self.attn_bias is not None:
             # .to(*args, **kwargs) is a no-op if tensor is already on
@@ -392,7 +392,7 @@ class MPTModel(MPTPreTrainedModel):
             attn_bias = self._apply_prefix_mask(attn_bias, prefix_mask)
 
         # If using torch or triton, we incorporate sequence_id (if appropriate)
-        if self.attn_uses_sequence_id and sequence_id is not None:
+        if self.attn_impl in ['torch', 'triton'] and self.attn_uses_sequence_id and sequence_id is not None:
             assert isinstance(attn_bias, torch.Tensor)  # pyright
             attn_bias = apply_sequence_id(attn_bias, sequence_id,
                                           self.config.max_seq_len)
@@ -400,7 +400,7 @@ class MPTModel(MPTPreTrainedModel):
         # If using torch or triton, we incorporate attention_mask. This will output
         # None in place of attention_mask since it will not be further needed in the
         # attention modules.
-        if attention_mask is not None:
+        if self.attn_impl in ['torch', 'triton'] and attention_mask is not None:
             s_k = attention_mask.shape[-1]
             if attn_bias is None:
                 attn_bias = torch.zeros((1, 1, 1, s_k),
@@ -451,6 +451,49 @@ class MPTModel(MPTPreTrainedModel):
         attn_bias = attn_bias.masked_fill(cannot_attend, min_val)
 
         return attn_bias
+    def _get_tok_id_seq_len(self, sequence_id: torch.Tensor):
+        tok_id_one_hot = torch.nn.functional.one_hot(sequence_id)
+        tok_id = ((tok_id_one_hot.cumsum(dim=1))*tok_id_one_hot).sum(dim=-1)
+        seq_len = ((tok_id_one_hot.sum(dim=1).unsqueeze(1))*tok_id_one_hot).sum(dim=-1)
+        return tok_id, seq_len
+    
+    def _get_custom_attn_bias(self, sequence_id: torch.Tensor, alibi_attn_bias: torch.Tensor):
+        if self.config.attn_config['kv_n_heads'] and self.config.attn_config['attn_type'] != 'grouped_query_attention':
+            raise ValueError('kv_n_heads is only supported for grouped_query_attention')
+        
+        tok_id, _ = self._get_tok_id_seq_len(sequence_id)
+
+        n_heads = self.config.n_heads
+        kv_n_heads = self.config.attn_config['kv_n_heads'] if self.config.attn_config['kv_n_heads'] else n_heads
+        
+        kv_n_alibi_heads = math.ceil((kv_n_heads-1)/2)
+        key_alibi = tok_id.to(alibi_attn_bias)[:, None, None, :].expand(-1, -1, kv_n_alibi_heads, -1).permute(0, 3, 2, 1)
+        # key_alibi_mask = torch.ones_like(key_alibi)
+        # key_alibi = torch.concat([key_alibi, torch.zeros_like(key_alibi)], dim=-1)
+        # key_alibi_mask = torch.concat([key_alibi_mask, torch.zeros_like(key_alibi_mask)], dim=-1)
+
+        ratio_q_kv = n_heads//kv_n_heads
+
+        query_alibi = alibi_attn_bias[:, :kv_n_alibi_heads*ratio_q_kv, 0, -2:-1] - alibi_attn_bias[:, :kv_n_alibi_heads*ratio_q_kv, 0, -1:]
+        query_alibi = query_alibi[:, None, :, :].expand(tok_id.shape[0], tok_id.shape[1], -1, -1)
+        # query_alibi_mask = torch.ones_like(query_alibi)
+        # query_alibi = torch.concat([query_alibi, torch.zeros_like(query_alibi)], dim=-1)
+        # query_alibi_mask = torch.concat([query_alibi_mask, torch.zeros_like(query_alibi_mask)], dim=-1)
+
+        key_long_dist = torch.stack([torch.square(tok_id), tok_id], dim=-2).to(key_alibi).permute(0,2,1)[:,:, None, :]
+        # key_long_dist_mask = torch.ones_like(key_long_dist)
+        
+        query_long_dist = (torch.stack([-1*torch.ones_like(tok_id), 2*tok_id/(2*ratio_q_kv)], dim=-2).permute(0,2,1)[:, :, None, :] * (((1+2*torch.arange(ratio_q_kv))[None, None, :, None]).to(query_alibi))).to(query_alibi)
+        # query_long_dist_mask = torch.ones_like(query_long_dist)
+
+        # query_bias = torch.concat([query_alibi, query_long_dist], dim=-2)
+        # key_bias = torch.concat([key_alibi, key_long_dist], dim=-2)
+        # query_bias_mask = torch.concat([query_alibi_mask, query_long_dist_mask], dim=-2)
+        # key_bias_mask = torch.concat([key_alibi_mask, key_long_dist_mask], dim=-2)
+
+        # return {'query_bias': query_bias, 'key_bias': key_bias} # , 'query_bias_mask': query_bias_mask, 'key_bias_mask': key_bias_mask}
+        return {'query_alibi': query_alibi, 'key_alibi': key_alibi, 'query_long_dist': query_long_dist, 'key_long_dist': key_long_dist}
+        
 
     def forward(
         self,
@@ -612,6 +655,7 @@ class MPTModel(MPTPreTrainedModel):
         if use_cache and past_key_values is None:
             past_key_values = [() for _ in range(self.config.n_layers)
                               ]  # type: ignore
+        rotary_emb_w_meta_info['custom_biases'] = self._get_custom_attn_bias(sequence_id, attn_bias.to(device=x.device, dtype=torch.bfloat16))
 
         all_hidden_states = () if output_hidden_states else None
         all_self_attns = () if output_attentions else None
