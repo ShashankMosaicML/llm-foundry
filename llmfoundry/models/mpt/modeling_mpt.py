@@ -316,9 +316,10 @@ class MPTModel(MPTPreTrainedModel):
         # define attn mask
         self._attn_bias_initialized = False
         self.attn_bias = None
+        kv_n_heads = self.config.attn_config['kv_n_heads'] if self.config.attn_config['kv_n_heads'] else self.config.n_heads
         self.attn_bias_shape = attn_bias_shape(
             self.attn_impl,
-            config.n_heads,
+            math.ceil((kv_n_heads-1)/2)*self.config.n_heads//kv_n_heads,
             config.max_seq_len,
             self.alibi,
             prefix_lm=self.prefix_lm,
@@ -362,10 +363,11 @@ class MPTModel(MPTPreTrainedModel):
                 self.attn_bias = torch.zeros(self.attn_bias_shape,
                                              device=device,
                                              dtype=dtype)
+                kv_n_heads = self.config.attn_config['kv_n_heads'] if self.config.attn_config['kv_n_heads'] else self.config.n_heads
                 self.attn_bias = build_attn_bias(
                     self.attn_impl,
                     self.attn_bias,
-                    self.config.n_heads,
+                    math.ceil((kv_n_heads-1)/2)*self.config.n_heads//kv_n_heads,
                     self.config.max_seq_len,
                     causal=self.is_causal,
                     alibi=self.alibi,
