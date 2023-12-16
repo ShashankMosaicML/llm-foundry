@@ -636,8 +636,8 @@ class GroupedQueryAttention(nn.Module):
                 query_alibi = torch.concat([query_alibi, rotary_emb_w_meta_info['custom_biases']['query_alibi']], dim=-1)
                 key_alibi = torch.concat([key_alibi, rotary_emb_w_meta_info['custom_biases']['key_alibi']], dim=-1)
 
-                query_long_dist = query[:,:,-q_kv_ratio:,:-2]
-                key_long_dist = key[:,:,-1:,:-2]
+                query_long_dist = query[:,:,-q_kv_ratio:,:-3]
+                key_long_dist = key[:,:,-1:,:-3]
                 value_long_dist = value[:,:,-1:,:]
 
                 query_long_dist = torch.concat([query_long_dist, rotary_emb_w_meta_info['custom_biases']['query_long_dist']], dim=-1)
