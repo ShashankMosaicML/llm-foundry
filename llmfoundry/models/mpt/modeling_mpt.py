@@ -478,8 +478,11 @@ class MPTModel(MPTPreTrainedModel):
 
         key_long_dist = torch.stack([torch.square(tok_id), tok_id], dim=-2).to(key_alibi).permute(0,2,1)[:,:, None, :]
         
-        query_long_dist = (torch.stack([-1*torch.ones_like(tok_id), 2*tok_id/(2*ratio_q_kv)], dim=-2).permute(0,2,1)[:, :, None, :] * (((1+2*torch.arange(ratio_q_kv))[None, None, :, None]).to(query_alibi))).to(query_alibi)
+        query_long_dist_quad = -1*torch.ones_like(tok_id).permute(0,2,1)[:, :, None, :].expand(-1,-1,ratio_q_kv,-1)
+        query_long_dist_lin = (2*tok_id/(2*ratio_q_kv).permute(0,2,1)[:, :, None, :])*((1+2*torch.arange(ratio_q_kv))[None, None, :, None])
+        query_long_dist = torch.stack([query_long_dist_quad, query_long_dist_lin], dim=-1).to(query_alibi)
 
+        breakpoint()
         return {'query_alibi': query_alibi, 'key_alibi': key_alibi, 'query_long_dist': query_long_dist, 'key_long_dist': key_long_dist}
         
 
