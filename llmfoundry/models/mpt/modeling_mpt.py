@@ -463,13 +463,13 @@ class MPTModel(MPTPreTrainedModel):
         if self.config.attn_config['kv_n_heads'] and self.config.attn_config['attn_type'] != 'grouped_query_attention':
             raise ValueError('kv_n_heads is only supported for grouped_query_attention')
         
-        tok_id, _ = self._get_tok_id_seq_len(sequence_id)
+        tok_id, seq_len = self._get_tok_id_seq_len(sequence_id)
 
         n_heads = self.config.n_heads
         kv_n_heads = self.config.attn_config['kv_n_heads'] if self.config.attn_config['kv_n_heads'] else n_heads
         
         kv_n_alibi_heads = math.ceil((kv_n_heads-1)/2)
-        key_alibi = tok_id.to(alibi_attn_bias)[:, None, None, :].expand(-1, -1, kv_n_alibi_heads, -1).permute(0, 3, 2, 1)
+        key_alibi = (seq_len-tok_id).to(alibi_attn_bias)[:, None, None, :].expand(-1, -1, kv_n_alibi_heads, -1).permute(0, 3, 2, 1)
 
         ratio_q_kv = n_heads//kv_n_heads
 
