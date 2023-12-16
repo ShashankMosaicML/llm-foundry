@@ -470,30 +470,16 @@ class MPTModel(MPTPreTrainedModel):
         
         kv_n_alibi_heads = math.ceil((kv_n_heads-1)/2)
         key_alibi = tok_id.to(alibi_attn_bias)[:, None, None, :].expand(-1, -1, kv_n_alibi_heads, -1).permute(0, 3, 2, 1)
-        # key_alibi_mask = torch.ones_like(key_alibi)
-        # key_alibi = torch.concat([key_alibi, torch.zeros_like(key_alibi)], dim=-1)
-        # key_alibi_mask = torch.concat([key_alibi_mask, torch.zeros_like(key_alibi_mask)], dim=-1)
 
         ratio_q_kv = n_heads//kv_n_heads
 
         query_alibi = alibi_attn_bias[:, :kv_n_alibi_heads*ratio_q_kv, 0, -2:-1] - alibi_attn_bias[:, :kv_n_alibi_heads*ratio_q_kv, 0, -1:]
         query_alibi = query_alibi[:, None, :, :].expand(tok_id.shape[0], tok_id.shape[1], -1, -1)
-        # query_alibi_mask = torch.ones_like(query_alibi)
-        # query_alibi = torch.concat([query_alibi, torch.zeros_like(query_alibi)], dim=-1)
-        # query_alibi_mask = torch.concat([query_alibi_mask, torch.zeros_like(query_alibi_mask)], dim=-1)
 
         key_long_dist = torch.stack([torch.square(tok_id), tok_id], dim=-2).to(key_alibi).permute(0,2,1)[:,:, None, :]
-        # key_long_dist_mask = torch.ones_like(key_long_dist)
         
         query_long_dist = (torch.stack([-1*torch.ones_like(tok_id), 2*tok_id/(2*ratio_q_kv)], dim=-2).permute(0,2,1)[:, :, None, :] * (((1+2*torch.arange(ratio_q_kv))[None, None, :, None]).to(query_alibi))).to(query_alibi)
-        # query_long_dist_mask = torch.ones_like(query_long_dist)
 
-        # query_bias = torch.concat([query_alibi, query_long_dist], dim=-2)
-        # key_bias = torch.concat([key_alibi, key_long_dist], dim=-2)
-        # query_bias_mask = torch.concat([query_alibi_mask, query_long_dist_mask], dim=-2)
-        # key_bias_mask = torch.concat([key_alibi_mask, key_long_dist_mask], dim=-2)
-
-        # return {'query_bias': query_bias, 'key_bias': key_bias} # , 'query_bias_mask': query_bias_mask, 'key_bias_mask': key_bias_mask}
         return {'query_alibi': query_alibi, 'key_alibi': key_alibi, 'query_long_dist': query_long_dist, 'key_long_dist': key_long_dist}
         
 
