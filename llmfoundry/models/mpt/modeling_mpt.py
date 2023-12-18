@@ -464,9 +464,15 @@ class MPTModel(MPTPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         use_cache: Optional[bool] = None,
         inputs_embeds: Optional[torch.Tensor] = None,
+        eos_token_id: Optional[int] = None
     ) -> BaseModelOutputWithPast:
         if not self.attn_uses_sequence_id:
+            assert attention_mask is None
+            assert prefix_mask is None
+            assert past_key_values is None
+            assert inputs_embeds is None
             orig_batch_size = input_ids.shape[0]
+            input_ids[:,-1] = eos_token_id
             input_ids = input_ids.view(1, -1)
         return_dict = (return_dict
                        if return_dict is not None else self.config.return_dict)
@@ -767,6 +773,7 @@ class MPTForCausalLM(MPTPreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         use_cache: Optional[bool] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
+        eos_token_id: Optional[int] = None,
     ) -> CausalLMOutputWithPast:
         return_dict = (return_dict
                        if return_dict is not None else self.config.return_dict)
@@ -784,6 +791,7 @@ class MPTForCausalLM(MPTPreTrainedModel):
             output_hidden_states=output_hidden_states,
             use_cache=use_cache,
             inputs_embeds=inputs_embeds,
+            eos_token_id=eos_token_id,
         )
 
         if self.lm_head is not None:
@@ -1016,6 +1024,7 @@ class ComposerMPTCausalLM(HuggingFaceModel):
             prefix_mask=batch.get('bidirectional_mask', None),
             sequence_id=batch.get('sequence_id', None),
             inputs_embeds=batch.get('inputs_embeds', None),
+            eos_token_id=self.tokenizer.eos_token_id
         )
 
     def loss(self, outputs: CausalLMOutputWithPast,
