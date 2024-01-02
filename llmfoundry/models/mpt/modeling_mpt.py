@@ -18,6 +18,7 @@ from composer.metrics import (InContextLearningCodeEvalAccuracy,
                               InContextLearningLMAccuracy,
                               InContextLearningLMExpectedCalibrationError,
                               InContextLearningMCExpectedCalibrationError,
+                              InContextLearningMetric,
                               InContextLearningMultipleChoiceAccuracy,
                               InContextLearningQAAccuracy)
 from composer.metrics.nlp import LanguageCrossEntropy, LanguagePerplexity
@@ -239,6 +240,98 @@ def apply_sequence_id(attn_bias: torch.Tensor, sequence_id: torch.LongTensor,
 
     return attn_bias
 
+class LanguagePerplexityNoReduce(InContextLearningMetric):
+
+    # Make torchmetrics call update only once
+    full_state_update = False
+
+    def __init__(self,
+                 dist_sync_on_step: bool = False,
+                 ignore_index: int = -100):
+        super().__init__(dist_sync_on_step=dist_sync_on_step)
+
+        self.ignore_index = ignore_index
+        self.loss_fn = torch.nn.CrossEntropyLoss(ignore_index=ignore_index,
+                                                 reduction='none')
+        self.add_state('sum_perp',
+                       default=torch.Tensor(),
+                       dist_reduce_fx='sum')
+        self.add_state('sum_length',
+                       default=torch.Tensor(),
+                       dist_reduce_fx='sum')
+
+    def update(self, batch: dict, output: Union[Mapping, torch.Tensor],
+               target: torch.Tensor) -> None:
+        """Updates the internal state with results from a new batch.
+        Args:
+            output (Mapping): The output from the model, which must contain
+                either the Tensor or a Mapping type that contains the loss or model logits.
+            target (~torch.Tensor): A Tensor of ground-truth values to compare against.
+        """
+        if isinstance(output, Mapping):
+            logits = output['logits']
+        elif isinstance(output, torch.Tensor):
+            logits = output
+        else:
+            raise Exception(
+                f'Type {type(output)} for the output is unsupported.')
+        if 'sequence_id' not in batch:
+            warnings.warn('Sequence id information not available, cannot compute  LanguagePerplexityNoReduce.')
+            return
+        log.info(
+                f'{target.shape=}, {logits.shape=}, {batch["sequence_id"].shape=}'
+            )
+
+        bsz, seq_len = target.shape
+        for i in range(bsz):
+            log.info(f'max_seq_len={torch.bincount(batch["sequence_id"][i]).max().item()}')
+        target = target.view(-1)
+        logits = logits.view(target.shape[0], -1)
+        # perplexity = torch.exp(self.loss_fn(logits, target))
+        perplexity = self.loss_fn(logits, target)
+
+        seq_id = batch['sequence_id']
+        seq_id_expanded = torch.nn.functional.one_hot(seq_id).transpose(-1,-2) == 1
+        tok_ids = (seq_id_expanded.cumsum(dim=-1) - 1) * seq_id_expanded
+        tok_ids = tok_ids.sum(dim=-2)
+
+        # # Old code, commented out because ran out of memory for longer sequences
+        # ignore_mask = (target.view(bsz, seq_len) == self.ignore_index)
+        # ignore_mask = ignore_mask.unsqueeze(1).expand(-1, seq_len, -1)
+        # tok_ids_expanded = torch.where(ignore_mask, False, tok_ids_expanded)
+        # perplexity = perplexity.view(bsz, seq_len).unsqueeze(-2)
+        # self.sum_perp = self.sum_perp + torch.where(
+        #     tok_ids_expanded, perplexity, 0).sum(dim=-1).sum(dim=0)
+        # self.sum_length = self.sum_length + tok_ids_expanded.sum(dim=-1).sum(
+        #     dim=0)
+
+        # New code. TODO: The following can be done with torch.index_reduce_ once it is not in beta
+        perplexity = perplexity.view(bsz, seq_len)
+        target = target.view(bsz, seq_len)
+        if self.sum_perp.numel() == 0:
+            if self.sum_length.numel() != 0:
+                raise ValueError('sum_perp is empty but sum_length is not')
+            self.sum_perp = torch.zeros(seq_len, device=perplexity.device, dtype=perplexity.dtype)
+            self.sum_length = torch.zeros(seq_len, device=perplexity.device, dtype=torch.long)
+
+        for i in range(bsz):
+            for j in range(seq_len):
+                if target[i,j] == self.ignore_index:
+                    continue
+                self.sum_perp[tok_ids[i,j]] += perplexity[i,j]
+                self.sum_length[tok_ids[i,j]] += 1
+        log.info(
+                f'End of update'
+            )
+
+
+    def compute(self) -> torch.Tensor:
+        """Aggregate the state over all processes to compute the metric.
+        Returns:
+            loss: The loss averaged across all batches as a :class:`~torch.Tensor`.
+        """
+        # Return average loss over entire dataset
+        return (self.sum_perp, self.sum_length)
 
 class MPTPreTrainedModel(PreTrainedModel):
     config_class = MPTConfig
@@ -944,11 +1037,15 @@ class ComposerMPTCausalLM(HuggingFaceModel):
         model = MPTForCausalLM(hf_config)
 
         use_train_metrics = om_model_config.get('use_train_metrics', True)
-        train_metrics = [LanguageCrossEntropy(),
-                         LanguagePerplexity()] if use_train_metrics else []
+        train_metrics = [
+            LanguageCrossEntropy(),
+            LanguagePerplexity(),
+            LanguagePerplexityNoReduce(),
+        ] if use_train_metrics else []
         eval_metrics = [
             LanguageCrossEntropy(),
             LanguagePerplexity(),
+            LanguagePerplexityNoReduce(),
             InContextLearningLMAccuracy(),
             InContextLearningMultipleChoiceAccuracy(),
             InContextLearningQAAccuracy(),

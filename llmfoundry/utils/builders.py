@@ -34,6 +34,7 @@ from transformers import AutoTokenizer, PreTrainedTokenizerBase
 from llmfoundry.callbacks import (AsyncEval, EvalGauntlet, FDiffMetrics,
                                   GlobalLRScaling, HuggingFaceCheckpointer,
                                   LayerFreezing, MonolithicCheckpointSaver,
+                                  LossVsContextLengthEvaluator,
                                   ScheduledGarbageCollector)
 from llmfoundry.data.dataloader import build_dataloader
 from llmfoundry.optim import (DecoupledAdaLRLion, DecoupledClipLion,
@@ -208,6 +209,8 @@ def build_callback(
         if isinstance(kwargs, DictConfig):
             kwargs = om.to_object(kwargs)  # pyright: ignore
         return HuggingFaceCheckpointer(**kwargs)
+    elif name == 'eval_loss_v_context_length':
+        return LossVsContextLengthEvaluator(**kwargs)
     elif name == 'async_eval':
         if config is None:
             raise ValueError(
