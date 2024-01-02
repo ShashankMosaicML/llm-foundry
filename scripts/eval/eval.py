@@ -359,10 +359,6 @@ def main(cfg: DictConfig) -> Tuple[List[Trainer], pd.DataFrame]:
              precision=precision,
              eval_gauntlet_df=eval_gauntlet_df,
              icl_subset_num_batches=icl_subset_num_batches,
-             eval_loader_config=pop_config(cfg,
-                                           'eval_loader',
-                                           must_exist=False,
-                                           default_value=None),
              metadata=metadata,
              logged_config=logged_cfg)
         trainers.append(trainer)
