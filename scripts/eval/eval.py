@@ -182,21 +182,6 @@ def evaluate_model(
         for name, callback_cfg in callback_configs.items()
     ] if callback_configs else []
 
-    eval_loaders = []
-    if eval_loader_config is not None:
-        is_multi_eval = isinstance(eval_loader_config, ListConfig)
-        eval_configs = eval_loader_config if is_multi_eval else [
-            eval_loader_config
-        ]
-        for eval_config in eval_configs:
-            eval_dataloader = build_dataloader(eval_config, tokenizer,
-                                               device_eval_batch_size)
-            eval_loader = Evaluator(
-                label=f'eval/{eval_config.label}' if is_multi_eval else 'eval',
-                dataloader=eval_dataloader,
-                metric_names=[],  # we will add these after model is created
-            )
-            eval_loaders.append(eval_loader)
     if eval_gauntlet_callback is not None:
         callbacks.append(eval_gauntlet_callback)
 
@@ -230,11 +215,6 @@ def evaluate_model(
     if eval_loader_config is not None:
         train_metrics = composer_model.get_metrics(is_train=True)
         evaluators = add_metrics_to_eval_loaders(evaluators, train_metrics)
-    
-    eval_metric_names = list(composer_model.train_metrics.keys())
-    for eval_loader in eval_loaders:
-        eval_loader.metric_names = eval_metric_names
-        evaluators.insert(0, eval_loader)  # Put the base eval_loaders first
 
     loggers: List[LoggerDestination] = [
         build_logger(name, logger_cfg)
