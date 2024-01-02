@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 import torch
-from composer.core import Evaluator
 from composer.core.callback import Callback
 from composer.loggers import MosaicMLLogger
 from composer.loggers.logger_destination import LoggerDestination
@@ -23,45 +22,16 @@ from omegaconf import OmegaConf as om
 from transformers import (AutoModelForCausalLM, PreTrainedTokenizerBase,
                           T5ForConditionalGeneration)
 
-from llmfoundry import (build_finetuning_dataloader,
-                        build_text_denoising_dataloader)
-from llmfoundry.data.text_data import build_text_dataloader
-
 from llmfoundry.models import MPTForCausalLM
 from llmfoundry.models.model_registry import COMPOSER_MODEL_REGISTRY
 from llmfoundry.utils.builders import (add_metrics_to_eval_loaders,
                                        build_evaluators, build_logger,
                                        build_callback,
-                                       build_icl_data_and_gauntlet,
                                        build_tokenizer)
 from llmfoundry.utils.config_utils import (log_config, pop_config,
                                            process_init_device)
 
 log = logging.getLogger(__name__)
-
-# copied from train.py
-def build_dataloader(cfg: DictConfig, tokenizer: PreTrainedTokenizerBase,
-                     device_batch_size: int):
-    if cfg.name == 'text':
-        return build_text_dataloader(
-            cfg,
-            tokenizer,
-            device_batch_size,
-        )
-    elif cfg.name == 'text_denoising':
-        return build_text_denoising_dataloader(
-            cfg,
-            tokenizer,
-            device_batch_size,
-        )
-    elif cfg.name == 'finetuning':
-        return build_finetuning_dataloader(
-            cfg,
-            tokenizer,
-            device_batch_size,
-        )
-    else:
-        raise ValueError(f'Not sure how to build dataloader with config: {cfg}')
 
 def load_peft_model(model_cfg: DictConfig, tokenizer: PreTrainedTokenizerBase,
                     num_retries: int) -> ComposerModel:
@@ -150,7 +120,6 @@ def evaluate_model(
     precision: str,
     eval_gauntlet_df: Optional[pd.DataFrame],
     icl_subset_num_batches: Optional[int],
-    eval_loader_config: Optional[Union[DictConfig, ListConfig]] = None,
     metadata: Optional[Dict[str, str]],
     logged_config: DictConfig,
 ):
