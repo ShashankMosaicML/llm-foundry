@@ -972,10 +972,10 @@ class ComposerMPTCausalLM(HuggingFaceModel):
         loss_fn_config = om_model_config.get('loss_fn', 'fused_crossentropy')
         if loss_fn_config == 'fused_crossentropy':
             try:
-                from flash_attn.losses.cross_entropy import \
+                from llmfoundry.models.layers.cross_entropy import \
                     CrossEntropyLoss as FusedCrossEntropyLoss
 
-                self.loss_fn = FusedCrossEntropyLoss(ignore_index=-100)
+                self.loss_fn = FusedCrossEntropyLoss(ignore_index=-100, reduction='weighted_mean')
             except:
                 raise ValueError(
                     'Fused Cross Entropy is not installed. Either (1) have a CUDA-compatible GPU '
@@ -1011,8 +1011,9 @@ class ComposerMPTCausalLM(HuggingFaceModel):
     def loss(self, outputs: CausalLMOutputWithPast,
              batch: Mapping) -> torch.Tensor:
         targets = self.get_targets(batch)
+        weights = None
         return self.loss_fn(outputs.logits.view(-1, outputs.logits.size(-1)),
-                            targets.view(-1))
+                            targets.view(-1), weights)
 
     def flops_per_batch(self, batch: Mapping) -> int:
         # Note: this computation does not take into account padding, and assumes
