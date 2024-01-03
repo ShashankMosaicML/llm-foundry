@@ -1024,9 +1024,13 @@ class ComposerMPTCausalLM(HuggingFaceModel):
              batch: Mapping) -> torch.Tensor:
         targets = self.get_targets(batch)
         self.loss_v_len_list = self.loss_v_len_list.to(device=targets.device)
+        
         tok_ids = self._get_tok_id(batch['sequence_id'])
-        # weights = 2.5 / torch.index_select(self.loss_v_len_list, -1, torch.flatten(tok_ids))
-        weights = 1 + 0.1 * torch.randn(torch.numel(tok_ids))
+        weights = 2.5 / torch.index_select(self.loss_v_len_list, -1, torch.flatten(tok_ids-1))
+        
+        # lti = torch.log(torch.flatten(self._get_tok_id(batch['sequence_id'])))
+        # weights = 2.5 / (5.493 - 1.348*lti + 0.2262*(lti**2) - 0.01297*(lti**3))
+        # breakpoint()
         return self.loss_fn(outputs.logits.view(-1, outputs.logits.size(-1)),
                             targets.view(-1), weights)
 
