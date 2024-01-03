@@ -63,6 +63,6 @@ class CrossEntropyLoss(nn.Module):
             if weights is None:
                 raise ValueError("weights must be provided when reduction is weighted_mean")
             weights = (target != self.ignore_index) * weights
-            return (loss * weights).sum() / weights.sum()
+            return (2 * loss * weights).sum() / weights.sum()
         else:
             return loss
