@@ -11,6 +11,8 @@ import warnings
 from typing import (Any, Dict, List, Mapping, MutableMapping, Optional, Tuple,
                     Union)
 
+import csv
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -932,6 +934,11 @@ class MPTForCausalLM(MPTPreTrainedModel):
 
 
 class ComposerMPTCausalLM(HuggingFaceModel):
+    
+    def _get_tok_id(self, sequence_id: torch.Tensor):
+        tok_id_one_hot = torch.nn.functional.one_hot(sequence_id)
+        tok_id = ((tok_id_one_hot.cumsum(dim=1))*tok_id_one_hot).sum(dim=-1)
+        return tok_id
 
     def __init__(
         self,
@@ -968,6 +975,11 @@ class ComposerMPTCausalLM(HuggingFaceModel):
         )
 
         self.n_active_params = sum(p.numel() for p in self.parameters())
+        with open('loss_v_len.csv', 'r') as loss_v_len_file:
+            loss_v_len_list = list(csv.reader(loss_v_len_file))
+            loss_v_len_list = [float(loss_v_len_item[2]) for loss_v_len_item in loss_v_len_list]
+            loss_v_len_list[-1] = 2.5
+            self.loss_v_len_list = torch.tensor(loss_v_len_list).to(dtype=torch.bfloat16)
 
         loss_fn_config = om_model_config.get('loss_fn', 'fused_crossentropy')
         if loss_fn_config == 'fused_crossentropy':
@@ -1011,7 +1023,11 @@ class ComposerMPTCausalLM(HuggingFaceModel):
     def loss(self, outputs: CausalLMOutputWithPast,
              batch: Mapping) -> torch.Tensor:
         targets = self.get_targets(batch)
-        weights = None
+        self.loss_v_len_list = self.loss_v_len_list.to(device=targets.device)
+        tok_ids = self._get_tok_id(batch['sequence_id'])
+        tok_ids_shape = tok_ids.shape
+        weights = 2.5 / torch.index_select(self.loss_v_len_list, -1, torch.flatten(tok_ids))
+        weights = weights.view(tok_ids_shape)
         return self.loss_fn(outputs.logits.view(-1, outputs.logits.size(-1)),
                             targets.view(-1), weights)
 
