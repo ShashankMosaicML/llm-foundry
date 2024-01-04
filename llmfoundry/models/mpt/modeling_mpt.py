@@ -289,7 +289,6 @@ class LanguagePerplexityNoReduce(InContextLearningMetric):
         # perplexity = torch.exp(self.loss_fn(logits, target))
         perplexity = self.loss_fn(logits, target)
 
-        # New code. TODO: The following can be done with torch.index_reduce_ once it is not in beta
         if self.sum_perp.numel() == 0:
             if self.sum_length.numel() != 0:
                 raise ValueError('sum_perp is empty but sum_length is not')
@@ -301,15 +300,10 @@ class LanguagePerplexityNoReduce(InContextLearningMetric):
                                           dtype=torch.long)
 
         target[target == self.ignore_index] = vocab_size
-        self.sum_perp.index_reduce_(dim=0,
-                                    index=target,
-                                    source=perplexity,
-                                    reduce='sum')
-        self.sum_length.index_reduce_(dim=0,
-                                      index=target,
-                                      source=torch.ones(target.shape),
-                                      reduce='sum')
-
+        target_one_hot = torch.nn.functional.one_hot(target,num_classes=vocab_size+1)
+        self.sum_length += target_one_hot.sum(dim=0)
+        self.sum_perp += (perplexity[:, None] * target_one_hot).sum(dim=0)
+        
         log.info(f'End of update')
 
     def compute(self) -> torch.Tensor:
