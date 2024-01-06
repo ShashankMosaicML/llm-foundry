@@ -62,6 +62,7 @@ class MPTConfig(PretrainedConfig):
         tie_word_embeddings: bool = True,
         use_pad_tok_in_ffn: bool = True,
         verbose: Optional[int] = None,
+        loss_weighing: Optional[str] = 'len',
         **kwargs: Any,
     ):
         """The MPT configuration class.
@@ -154,6 +155,7 @@ class MPTConfig(PretrainedConfig):
         self.init_config = init_config
         self.fc_type = fc_type
         self.use_pad_tok_in_ffn = use_pad_tok_in_ffn
+        self.loss_weighing = loss_weighing
         if verbose is not None:
             warnings.warn(
                 DeprecationWarning(

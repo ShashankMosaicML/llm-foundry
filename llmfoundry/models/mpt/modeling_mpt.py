@@ -980,8 +980,14 @@ class ComposerMPTCausalLM(HuggingFaceModel):
             loss_v_len_list = [float(loss_v_len_item[2]) for loss_v_len_item in loss_v_len_list]
             loss_v_len_list[-1] = 2.5
             self.loss_v_len_list = torch.tensor(loss_v_len_list).to(dtype=torch.bfloat16)
+        
+        with open('df.csv', 'r') as df_file:
+            df_list = list(csv.reader(df_file))
+            idf_list = [713542/(1+float(df_item[0])) for df_item in df_list]
+            self.idf_list = 1+2*torch.log(torch.tensor(idf_list)).to(dtype=torch.bfloat16)/13.5
 
         loss_fn_config = om_model_config.get('loss_fn', 'fused_crossentropy')
+        self.loss_weighing = om_model_config.get('loss_weighing', 'len')
         if loss_fn_config == 'fused_crossentropy':
             try:
                 from llmfoundry.models.layers.cross_entropy import \
@@ -1024,9 +1030,23 @@ class ComposerMPTCausalLM(HuggingFaceModel):
              batch: Mapping) -> torch.Tensor:
         targets = self.get_targets(batch)
         self.loss_v_len_list = self.loss_v_len_list.to(device=targets.device)
-        
+        self.idf_list = self.idf_list.to(device=targets.device)
+
         tok_ids = self._get_tok_id(batch['sequence_id'])
-        weights = 2.5 / torch.index_select(self.loss_v_len_list, -1, torch.flatten(tok_ids-1))
+        weights_len = 2.5 / torch.index_select(self.loss_v_len_list, -1, torch.flatten(tok_ids-1))
+
+        targets_idf = torch.where(targets == -100, (len(self.idf_list)-1)*torch.ones_like(targets), targets)
+        weights_idf = torch.index_select(self.idf_list, -1, torch.flatten(targets_idf))
+        
+        if self.loss_weighing=='len':
+            weights = weights_len
+        elif self.loss_weighing=='idf':
+            weights = weights_idf
+        elif self.loss_weighing=='len_idf':
+            weights = weights_len*weights_idf
+        else:
+            weights = torch.ones_like(targets)
+        breakpoint()
         
         # lti = torch.log(torch.flatten(self._get_tok_id(batch['sequence_id'])))
         # weights = 2.5 / (5.493 - 1.348*lti + 0.2262*(lti**2) - 0.01297*(lti**3))
