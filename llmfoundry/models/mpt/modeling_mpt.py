@@ -1046,7 +1046,6 @@ class ComposerMPTCausalLM(HuggingFaceModel):
             weights = weights_len*weights_idf
         else:
             weights = torch.ones_like(targets)
-        breakpoint()
         
         # lti = torch.log(torch.flatten(self._get_tok_id(batch['sequence_id'])))
         # weights = 2.5 / (5.493 - 1.348*lti + 0.2262*(lti**2) - 0.01297*(lti**3))
