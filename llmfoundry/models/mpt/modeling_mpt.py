@@ -984,7 +984,7 @@ class ComposerMPTCausalLM(HuggingFaceModel):
         with open('df.csv', 'r') as df_file:
             df_list = list(csv.reader(df_file))
             idf_list = [713542/(1+float(df_item[0])) for df_item in df_list]
-            self.idf_list = 1+2*torch.log(torch.tensor(idf_list)).to(dtype=torch.bfloat16)/13.5
+            self.idf_list = 1+(torch.log(torch.tensor(idf_list)).to(dtype=torch.bfloat16)/13.5)
 
         loss_fn_config = om_model_config.get('loss_fn', 'fused_crossentropy')
         self.loss_weighing = om_model_config.get('loss_weighing', 'len')
