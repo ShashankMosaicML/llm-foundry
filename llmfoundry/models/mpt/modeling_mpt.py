@@ -22,7 +22,7 @@ from composer.metrics import (InContextLearningCodeEvalAccuracy,
                               InContextLearningMCExpectedCalibrationError,
                               InContextLearningMultipleChoiceAccuracy,
                               InContextLearningQAAccuracy)
-from composer.metrics.nlp import LanguageCrossEntropy, LanguagePerplexity
+from composer.metrics.nlp import LanguageCrossEntropy, LanguagePerplexity, LossPerpVLen
 from composer.models import HuggingFaceModel
 from composer.utils import dist
 
@@ -1019,10 +1019,12 @@ class ComposerMPTCausalLM(HuggingFaceModel):
 
         use_train_metrics = om_model_config.get('use_train_metrics', True)
         train_metrics = [LanguageCrossEntropy(),
-                         LanguagePerplexity()] if use_train_metrics else []
+                         LanguagePerplexity(),
+                         LossPerpVLen(),] if use_train_metrics else []
         eval_metrics = [
             LanguageCrossEntropy(),
             LanguagePerplexity(),
+            LossPerpVLen(),
             InContextLearningLMAccuracy(),
             InContextLearningMultipleChoiceAccuracy(),
             InContextLearningQAAccuracy(),
