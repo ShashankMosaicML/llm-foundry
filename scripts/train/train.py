@@ -590,7 +590,7 @@ def main(cfg: DictConfig) -> Trainer:
     # Now add the eval metrics
     if eval_loader_config is not None and not use_async_eval:
         train_metrics = model.get_metrics(is_train=True)
-        if model_config.get("eval_loss_v_len", False):
+        if model_config.get('eval_loss_v_len', False):
             eval_metrics = model.get_metrics(is_train=False)
             if 'LossPerpVLen' in eval_metrics:
                 train_metrics['LossPerpVLen'] = eval_metrics['LossPerpVLen']
