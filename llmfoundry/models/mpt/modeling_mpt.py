@@ -22,7 +22,8 @@ from composer.metrics import (InContextLearningCodeEvalAccuracy,
                               InContextLearningMCExpectedCalibrationError,
                               InContextLearningMultipleChoiceAccuracy,
                               InContextLearningQAAccuracy)
-from composer.metrics.nlp import LanguageCrossEntropy, LanguagePerplexity, LossPerpVLen
+from composer.metrics.nlp import (LanguageCrossEntropy, LanguagePerplexity,
+                                  LossPerpVLen)
 from composer.models import HuggingFaceModel
 from composer.utils import dist
 
