@@ -876,4 +876,4 @@ def set_config_overrides(
         else:
             setattr(config, k, v)
     
-    print(config)
+    print(f'{config=}')
