@@ -875,3 +875,5 @@ def set_config_overrides(
                 setattr(attr, _k, _v)
         else:
             setattr(config, k, v)
+    
+    print(config)
