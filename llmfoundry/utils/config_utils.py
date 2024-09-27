@@ -851,7 +851,7 @@ def set_config_overrides(
         if isinstance(attr, Mapping):
             extra_keys = [_k for _k in v.keys() if _k not in attr.keys()]
             if extra_keys:
-                raise ValueError(
+                warnings.warn(
                     f'Config dict override got unknown keys. ' +
                     f'Extra keys: {extra_keys}. ' +
                     f'Expected (a subset of) keys: {list(attr.keys())}.',
