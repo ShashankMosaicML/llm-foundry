@@ -353,6 +353,7 @@ class Seq2SeqFinetuningCollator:
 
                 # Check to make sure there are still loss-generating tokens. Error if not.
                 if len([l for l in labels if l != _HF_IGNORE_INDEX]) == 0:
+                    print(input_ids)
                     raise ValueError(
                         f'Truncating to max_seq_len={max_seq_len} has removed all loss-generating tokens. ' +\
                         f'Pre-truncation sequence length was {orig_size}. ' +\
