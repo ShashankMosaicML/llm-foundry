@@ -273,6 +273,7 @@ def flash_attn_fn(
     attn_logit_softcapping: Optional[float] = None,
 ) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[tuple[torch.Tensor,
                                                                 torch.Tensor]]]:
+    is_causal = False
     if key_padding_mask is not None:
         raise ValueError('key_padding_mask should be None for flash attn.')
     del key_padding_mask
