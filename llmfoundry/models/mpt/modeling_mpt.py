@@ -26,6 +26,7 @@ import torch.nn.functional as F
 from composer.models import HuggingFaceModel
 from composer.utils import dist
 from tabulate import tabulate
+from dataclasses import dataclass
 
 from llmfoundry.layers_registry import ffns_with_megablocks
 from llmfoundry.models.layers.attention import is_flash_v2_installed
@@ -371,6 +372,15 @@ def _fsdp_wrap_fn(
         return module._fsdp_kwargs_dict
     return isinstance(module, MPTBlock)
 
+@dataclass
+class LoopedBaseModelOutputWithPast(BaseModelOutputWithPast):
+    last_hidden_state_list: Optional[list[torch.FloatTensor]] = None
+    exit_logit_list: Optional[list[torch.FloatTensor]] = None
+
+@dataclass
+class LoopedCausalLMOutputWithPast(CausalLMOutputWithPast):
+    logits_list: Optional[list[torch.FloatTensor]] = None
+    exit_logit_list: Optional[list[torch.FloatTensor]] = None
 
 class MPTModel(MPTPreTrainedModel):
 
@@ -416,6 +426,19 @@ class MPTModel(MPTPreTrainedModel):
         self.emb_drop = nn.Dropout(config.emb_pdrop)
         self.mb_args = None
         self.shift_labels = True
+        self.num_loops = config.num_loops
+        self.loop_connector = nn.Linear(
+            config.d_model,
+            config.d_model,
+            bias=False,
+            device=config.init_device,
+        )
+        self.exit_logitor = nn.Linear(
+            config.d_model,
+            1,
+            bias=False,
+            device=config.init_device,
+        )
 
         self.blocks = self.construct_blocks(config=config,)
 
@@ -934,9 +957,7 @@ class MPTModel(MPTPreTrainedModel):
 
         # initialize the past key values cache if it should be used
         presents = () if use_cache else None
-        if (
-            use_cache or len(self.kv_cache_layers) > 0
-        ) and past_key_values is None:
+        if past_key_values is None: # temporary
             past_key_values = [() for _ in range(self.config.n_layers)
                               ]  # type: ignore
 
@@ -954,62 +975,75 @@ class MPTModel(MPTPreTrainedModel):
             )
 
         layer_kv_cache_dict = {}
-        for b_idx, block in enumerate(self.blocks):
-            attn_block = block.norm_attn_norm.attn if self.blocks_fuse_norm_attn_norm else block.attn
-            if attn_block.reuse_kv_layer_idx is not None:
-                if attn_block.reuse_kv_layer_idx not in layer_kv_cache_dict:
-                    raise KeyError(
-                        f'kv cache for layer {block.reuse_kv_layer_idx} not found in {layer_kv_cache_dict=}.',
-                    )
-                prev_layer_key_value = layer_kv_cache_dict[
-                    attn_block.reuse_kv_layer_idx]
-            else:
-                prev_layer_key_value = None
-            if output_hidden_states:
-                assert all_hidden_states is not None  # pyright
-                all_hidden_states = all_hidden_states + (x,)
-            past_key_value = (
-                past_key_values[b_idx] if past_key_values is not None else None
-            )
-            extra_kwargs = {}
-            if prev_layer_key_value is not None:
-                extra_kwargs['prev_layer_key_value'] = prev_layer_key_value
-            x, attn_weights, present = block(
-                x,
-                past_key_value=past_key_value,
-                attn_bias=attn_bias,
-                rotary_emb_w_meta_info=rotary_emb_w_meta_info,
-                attention_mask=attention_mask,
-                is_causal=self.is_causal,
-                output_attentions=bool(output_attentions),
-                alibi_slopes=alibi_slopes,
-                flash_attn_padding_info=flash_attn_padding_info,
-                **extra_kwargs,
-            )
-            if presents is not None:
-                presents += (present,)
-            if b_idx in self.kv_cache_layers:
-                layer_kv_cache_dict[b_idx] = [
-                    present[0][:, past_position:],
-                    present[1][:, past_position:],
-                ]
+        last_hidden_state_list = []
+        exit_logit_list = []
+        orig_x = x
+        for loop_idx in range(self.num_loops):
+            if loop_idx>0:
+                x = orig_x + self.loop_connector(x)
+            for b_idx, block in enumerate(self.blocks):
+                attn_block = block.norm_attn_norm.attn if self.blocks_fuse_norm_attn_norm else block.attn
+                assert attn_block.reuse_kv_layer_idx is None # temporary restriction
+                if loop_idx>0:
+                    attn_block.reuse_kv_layer_idx = b_idx
+                if attn_block.reuse_kv_layer_idx is not None:
+                    if attn_block.reuse_kv_layer_idx not in layer_kv_cache_dict:
+                        raise KeyError(
+                            f'kv cache for layer {block.reuse_kv_layer_idx} not found in {layer_kv_cache_dict=}.',
+                        )
+                    prev_layer_key_value = layer_kv_cache_dict[
+                        attn_block.reuse_kv_layer_idx]
+                else:
+                    prev_layer_key_value = None
+                if output_hidden_states:
+                    assert all_hidden_states is not None  # pyright
+                    all_hidden_states = all_hidden_states + (x,)
+                past_key_value = (
+                    past_key_values[b_idx] if past_key_values is not None else None
+                )
+                extra_kwargs = {}
+                if prev_layer_key_value is not None:
+                    extra_kwargs['prev_layer_key_value'] = prev_layer_key_value
+                x, attn_weights, present = block(
+                    x,
+                    past_key_value=past_key_value,
+                    attn_bias=attn_bias,
+                    rotary_emb_w_meta_info=rotary_emb_w_meta_info,
+                    attention_mask=attention_mask,
+                    is_causal=self.is_causal,
+                    output_attentions=bool(output_attentions),
+                    alibi_slopes=alibi_slopes,
+                    flash_attn_padding_info=flash_attn_padding_info,
+                    **extra_kwargs,
+                )
+                if presents is not None:
+                    presents += (present,)
+                if b_idx in self.kv_cache_layers or (self.num_loops > 1 and loop_idx==0):
+                    layer_kv_cache_dict[b_idx] = [
+                        present[0][:, past_position:],
+                        present[1][:, past_position:],
+                    ]
 
-            if output_attentions:
-                assert all_self_attns is not None  # pyright
-                all_self_attns = all_self_attns + (attn_weights,)
+                if output_attentions:
+                    assert all_self_attns is not None  # pyright
+                    all_self_attns = all_self_attns + (attn_weights,)
+                attn_block.reuse_kv_layer_idx = None # resetting reuse_kv_layer_idx
 
-        x = self.norm_f(x)
+            x = self.norm_f(x)
+            last_hidden_state_list.append(x)
+            exit_logit_list.append(self.exit_logitor(x))
 
         # add hidden states from the last decoder layer
         if output_hidden_states:
             assert all_hidden_states is not None  # pyright
             all_hidden_states = all_hidden_states + (x,)
 
-        return BaseModelOutputWithPast(
-            last_hidden_state=x,
+        return LoopedBaseModelOutputWithPast(
+            last_hidden_state_list=last_hidden_state_list,
             past_key_values=presents,
             hidden_states=all_hidden_states,
             attentions=all_self_attns,
+            exit_logit_list=exit_logit_list,
         )
 
     def get_sequence_length(self, x: torch.Tensor) -> int:
@@ -1165,42 +1199,37 @@ class MPTForCausalLM(MPTPreTrainedModel):
             position_ids=position_ids,
         )
 
+        logits_list = []
         if self.lm_head is not None:
-            logits = self.lm_head(outputs.last_hidden_state)
+            for last_hidden_state in outputs.last_hidden_state_list:
+                logits_list.append(self.lm_head(last_hidden_state))
         else:
-            # move outputs to same device as weights for token embedding
-            # needed to support HF `device_map`
-            out = outputs.last_hidden_state
-            out = out.to(self.transformer.wte.weight.device)
-            logits = self.transformer.wte(out, True)
+            for last_hidden_state in outputs.last_hidden_state_list:
+                # move outputs to same device as weights for token embedding
+                # needed to support HF `device_map`
+                out = last_hidden_state
+                out = out.to(self.transformer.wte.weight.device)
+                logits_list.append(self.transformer.wte(out, True))
 
         if self.logit_scale is not None:
             if self.logit_scale == 0:
                 warnings.warn(
                     f'Multiplying logits by {self.logit_scale=}. This will produce uniform (uninformative) outputs.',
                 )
-            logits *= self.logit_scale
+            logits_list = [logits * self.logit_scale for logits in logits_list]
 
-        if self.final_logit_softcapping is not None:
-            logits = self.final_logit_softcapping * torch.tanh(
-                logits / self.final_logit_softcapping,
-            )
+        assert self.final_logit_softcapping is None # temporary restriction
 
         loss = None
-        if labels is not None:
-            _labels = torch.roll(labels, shifts=-1)
-            _labels[:, -1] = CROSS_ENTROPY_IGNORE_INDEX
-            loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                _labels.to(logits.device).view(-1),
-            )
+        assert labels is None # temporary restriction
 
-        return CausalLMOutputWithPast(
+        return LoopedCausalLMOutputWithPast(
             loss=loss,
-            logits=logits,
+            logits_list=logits_list,
             past_key_values=outputs.past_key_values,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
+            exit_logit_list=outputs.exit_logit_list,
         )
 
     # Param Initialization, needed for device='meta' fast initialization
@@ -1344,37 +1373,47 @@ def get_targets(labels: torch.Tensor) -> torch.Tensor:
 
 
 def compute_loss_from_logits(
-    outputs: CausalLMOutputWithPast,
+    outputs: LoopedCausalLMOutputWithPast,
     shift_labels: bool,
     labels: torch.Tensor,
     loss_fn: nn.Module,
+    exit_loss_fn: nn.Module,
     sample_weighing_factor: Optional[torch.Tensor] = None,
-) -> torch.Tensor:
+) -> list[torch.Tensor]:
     targets = get_targets(labels) if shift_labels else labels
-
-    losses = loss_fn(
-        outputs.logits.view(-1, outputs.logits.size(-1)),
-        targets.view(-1),
-    )
-
-    if torch.all(targets == loss_fn.ignore_index):
-        loss = losses.sum()
-    else:
-        loss = losses.sum() / (targets != loss_fn.ignore_index).sum()
-        if sample_weighing_factor is not None:
-            warnings.warn(
-                VersionedDeprecationWarning(
-                    message='sample_weighing_factor has been deprecated!',
-                    remove_version='0.17.0',
-                ),
+    loss_list = []
+    for i, output_logits in enumerate(outputs.logits_list):
+        losses = loss_fn(
+                output_logits.view(-1, output_logits.size(-1)),
+                targets.view(-1),
             )
-            if sample_weighing_factor.shape[0] > 1:
-                raise ValueError(
-                    'Sample weighing factor is not supported when batch["sample_weighing_factor"].shape[0] > 1.',
-                )
-            loss = loss * sample_weighing_factor[0].item()
+        
+        correct = (torch.argmax(output_logits,dim=-1) == targets) | (targets == loss_fn.ignore_index)
+        correct = correct.float()
+        exit_losses = exit_loss_fn(outputs.exit_logit_list[i].squeeze(dim=-1), correct)
 
-    return loss
+        if torch.all(targets == loss_fn.ignore_index):
+            loss = losses.sum()
+            exit_loss = exit_losses.sum()
+        else:
+            loss = losses.sum() / (targets != loss_fn.ignore_index).sum()
+            exit_loss = exit_losses.sum() / (targets != loss_fn.ignore_index).sum()
+            if sample_weighing_factor is not None:
+                warnings.warn(
+                    VersionedDeprecationWarning(
+                        message='sample_weighing_factor has been deprecated!',
+                        remove_version='0.17.0',
+                    ),
+                )
+                if sample_weighing_factor.shape[0] > 1:
+                    raise ValueError(
+                        'Sample weighing factor is not supported when batch["sample_weighing_factor"].shape[0] > 1.',
+                    )
+                loss = loss * sample_weighing_factor[0].item()
+                exit_loss = exit_loss * sample_weighing_factor[0].item()
+        loss_list.append([loss, exit_loss])
+
+    return loss_list
 
 
 class ComposerMPTCausalLM(HuggingFaceModel):
@@ -1418,6 +1457,7 @@ class ComposerMPTCausalLM(HuggingFaceModel):
         )
 
         loss_fn_config = loss_fn
+        self.exit_loss_fn = torch.nn.BCEWithLogitsLoss(reduction='none',)
         if loss_fn_config == 'fused_crossentropy':
             try:
                 from flash_attn.losses.cross_entropy import \
@@ -1456,7 +1496,7 @@ class ComposerMPTCausalLM(HuggingFaceModel):
     def get_targets(self, batch: Mapping) -> torch.Tensor:
         return get_targets(batch['labels'])
 
-    def forward(self, batch: MutableMapping) -> CausalLMOutputWithPast:
+    def forward(self, batch: MutableMapping) -> LoopedCausalLMOutputWithPast:
         if self.config.ffn_config['ffn_type'] in ffns_with_megablocks:
             # Clear MegaBlocks MoE load balancing loss cache
             try:  # Add try/catch to avoid transformers complaining and raising errors
@@ -1474,31 +1514,28 @@ class ComposerMPTCausalLM(HuggingFaceModel):
             position_ids=batch.get('position_ids', None),
         )
 
-    def loss(self, outputs: CausalLMOutputWithPast,
+    def loss(self, outputs: LoopedCausalLMOutputWithPast,
              batch: Mapping) -> Union[dict, torch.Tensor]:
-        loss = compute_loss_from_logits(
+        loss_list = compute_loss_from_logits(
             outputs,
             self.shift_labels,
             batch['labels'],
             self.loss_fn,
+            self.exit_loss_fn,
             batch.get('sample_weighing_factor', None),
         )
 
         if self.config.ffn_config['ffn_type'] in ffns_with_megablocks:
-            # MegaBlocks MoE load balancing loss
-            try:  # Add try/catch to avoid transformers complaining and raising errors
-                from megablocks.layers.moe import batched_load_balancing_loss
-            except:
-                raise RuntimeError(
-                    'Requirements for MegaBlocks not installed; see install instructions in `README.md`.',
-                )
-            lbl = batched_load_balancing_loss(self.model.transformer.mb_args)
-            return {
-                'total': loss + lbl,
-                'loss': loss,
-                'lbl': lbl,
-            }
-        return loss
+            raise NotImplementedError('moe not implemented')
+        output_loss_dict = {}
+        total_loss = 0
+        for i, loss in enumerate(loss_list):
+            output_loss_dict[f'loss_loop_{i}'] = loss[0]
+            output_loss_dict[f'exit_loss_loop_{i}'] = loss[1]
+            total_loss += loss[0] + loss[1]*self.config.exit_loss_weight
+
+        output_loss_dict['total'] = total_loss
+        return output_loss_dict
 
     @cached_property
     def n_total_params(self):

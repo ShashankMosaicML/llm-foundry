@@ -52,6 +52,8 @@ class MPTConfig(PretrainedConfig):
         use_pad_tok_in_ffn: bool = True,
         block_overrides: Optional[dict[str, Any]] = None,
         final_logit_softcapping: Optional[float] = None,
+        num_loops: int = 1,
+        exit_loss_weight: float = 0.1,
         **kwargs: Any,
     ):
         """The MPT configuration class.
@@ -184,6 +186,8 @@ class MPTConfig(PretrainedConfig):
             self._validate_block_overrides(block_overrides)
         self.block_overrides = block_overrides
         self.final_logit_softcapping = final_logit_softcapping
+        self.num_loops = num_loops
+        self.exit_loss_weight = exit_loss_weight
 
         if isinstance(fc_type, str):
             fc_type = {'name': fc_type}
