@@ -427,12 +427,7 @@ class MPTModel(MPTPreTrainedModel):
         self.mb_args = None
         self.shift_labels = True
         self.num_loops = config.num_loops
-        self.loop_connector = nn.Linear(
-            config.d_model,
-            config.d_model,
-            bias=False,
-            device=config.init_device,
-        )
+        self.loop_connector = self.construct_block(config=config,)
         self.exit_logitor = nn.Linear(
             config.d_model,
             1,
@@ -507,6 +502,26 @@ class MPTModel(MPTPreTrainedModel):
     @property
     def block_class(self) -> type[MPTBlock]:
         return MPTBlock
+
+    def construct_block(self, config: MPTConfig) -> MPTBlock:
+        """Construct the nn.ModuleList with the Transformer blocks.
+
+        Args:
+            config (MPTConfig): The configuration object.
+
+        Returns:
+            nn.ModuleList: The list of Transformer blocks.
+        """
+        block_args = self.extract_block_args(config.to_dict())
+        self.blocks_fuse_norm_attn_norm = block_args.get(
+            'fuse_norm_attn_norm',
+            False,
+        )
+
+        return self.block_class( 
+                device=config.init_device,
+                **block_args,
+            )
 
     def construct_blocks(self, config: MPTConfig) -> nn.ModuleList:
         """Construct the nn.ModuleList with the Transformer blocks.
