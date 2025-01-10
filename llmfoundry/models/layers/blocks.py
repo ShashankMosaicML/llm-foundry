@@ -49,6 +49,7 @@ class MPTBlock(nn.Module):
         use_pad_tok_in_ffn: bool = True,
         **kwargs: Any,
     ):
+        no_bias = True
         if attn_config is None:
             attn_config = attn_config_defaults
 
