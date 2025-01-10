@@ -995,6 +995,9 @@ class MPTModel(MPTPreTrainedModel):
         orig_x = x
         for loop_idx in range(self.num_loops):
             if loop_idx>0:
+                print(f'{self.loop_connector.ffn.down_proj.bias=}')
+                print(f'{self.loop_connector.ffn.up_proj.bias=}')
+                print(f'{self.loop_connector.ffn.gate_proj.bias=}')
                 x = orig_x + self.loop_connector.ffn(x)
             for b_idx, block in enumerate(self.blocks):
                 attn_block = block.norm_attn_norm.attn if self.blocks_fuse_norm_attn_norm else block.attn
