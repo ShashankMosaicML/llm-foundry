@@ -995,7 +995,7 @@ class MPTModel(MPTPreTrainedModel):
         orig_x = x
         for loop_idx in range(self.num_loops):
             if loop_idx>0:
-                x = orig_x + self.loop_connector(x)
+                x = orig_x + self.loop_connector.ffn(x)
             for b_idx, block in enumerate(self.blocks):
                 attn_block = block.norm_attn_norm.attn if self.blocks_fuse_norm_attn_norm else block.attn
                 assert attn_block.reuse_kv_layer_idx is None # temporary restriction
