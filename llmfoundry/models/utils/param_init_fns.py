@@ -18,6 +18,7 @@ from llmfoundry.layers_registry import (
     norms,
     param_init_fns,
 )
+from llmfoundry.models.layers.blocks import MPTBlock
 from llmfoundry.models.layers.dmoe import GLU, MLP
 
 try:
@@ -184,6 +185,21 @@ def fc_init(
         ):
             with torch.no_grad():
                 module.weight.div_(div_is_residual)  # type: ignore
+        return True
+
+    return False
+
+
+def mptblock_init(
+    module: nn.Module,
+    init_fn_: Callable,
+    emb_init_std: Optional[float],
+    emb_init_uniform_lim: Optional[Union[tuple[float, float], float]],
+    **kwargs: Any,
+) -> bool:
+    del kwargs  # unused, just to capture any extra args
+
+    if isinstance(module, MPTBlock):
         return True
 
     return False
@@ -866,3 +882,4 @@ module_init_fns.register('norm', func=norm_init)
 module_init_fns.register('multihead_attention', func=multihead_attention_init)
 module_init_fns.register('te_layernorm_mlp', func=te_layernorm_mlp_init)
 module_init_fns.register('moe', func=moe_init)
+module_init_fns.register('mptblock', func=mptblock_init)

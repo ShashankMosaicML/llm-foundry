@@ -75,9 +75,12 @@ class MPTBlock(nn.Module):
         ffn_has_norm = ffn_type in ffns_with_norm
 
         self.ffn_residual_weight = torch.nn.Parameter(
-            torch.Tensor([1.0]),
+            torch.Tensor([1.0], device='cpu'),
             requires_grad=True,
-            device=device,
+        )
+        self.attn_residual_weight = torch.nn.Parameter(
+            torch.Tensor([1.0], device='cpu'),
+            requires_grad=True,
         )
 
         if self.fuse_norm_attn_norm:
@@ -129,11 +132,6 @@ class MPTBlock(nn.Module):
                     eps=norm_eps,
                     device=device,
                 )
-            self.attn_residual_weight = torch.nn.Parameter(
-                torch.Tensor([1.0]),
-                requires_grad=True,
-                device=device,
-            )
 
         self.ffn = build_ffn(
             name=ffn_type,
@@ -195,6 +193,7 @@ class MPTBlock(nn.Module):
                 output_attentions=output_attentions,
                 alibi_slopes=alibi_slopes,
                 flash_attn_padding_info=flash_attn_padding_info,
+                attn_residual_weight=self.attn_residual_weight,
                 **extra_kwargs,
             )
         else:
@@ -330,11 +329,6 @@ class FusedNormAttentionNorm(nn.Module):
                 device=device,
             )
         self.resid_attn_dropout = nn.Dropout(resid_pdrop)
-        self.attn_residual_weight = torch.nn.Parameter(
-            torch.Tensor([1.0]),
-            requires_grad=True,
-            device=device,
-        )
 
     def forward(
         self,
@@ -350,6 +344,7 @@ class FusedNormAttentionNorm(nn.Module):
         prev_layer_key_value: Optional[tuple[torch.Tensor,
                                              torch.Tensor]] = None,
         key_value_states: Optional[torch.Tensor] = None,
+        attn_residual_weight=None,
     ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor],
                Optional[tuple[torch.Tensor, torch.Tensor]]]:
         a = self.norm_1(x)
@@ -371,8 +366,8 @@ class FusedNormAttentionNorm(nn.Module):
             flash_attn_padding_info=flash_attn_padding_info,
             **extra_kwargs,
         )
-        x = x * self.attn_residual_weight.to(device=x.device,
-                                            ) + self.resid_attn_dropout(b)
+        x = x * attn_residual_weight.to(device=x.device,
+                                       ) + self.resid_attn_dropout(b)
         m = x
         if self.norm_2 is not None:
             m = self.norm_2(x)
