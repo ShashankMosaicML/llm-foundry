@@ -200,6 +200,13 @@ def mptblock_init(
     del kwargs  # unused, just to capture any extra args
 
     if isinstance(module, MPTBlock):
+        with torch.no_grad():
+            module.ffn_residual_weight.weight = torch.ones_like(
+                module.ffn_residual_weight.weight,
+            )
+            module.attn_residual_weight.weight = torch.ones_like(
+                module.attn_residual_weight.weight,
+            )
         return True
 
     return False
