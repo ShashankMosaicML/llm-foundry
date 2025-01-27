@@ -181,7 +181,8 @@ class MPTBlock(nn.Module):
             extra_kwargs['prev_layer_key_value'] = prev_layer_key_value
         if key_value_states is not None:
             extra_kwargs['key_value_states'] = key_value_states
-
+        print(f'{self.attn_residual_weight=}')
+        print(f'{self.ffn_residual_weight=}')
         if self.fuse_norm_attn_norm:
             x, m, attn_weights, past_key_value = self.norm_attn_norm(
                 x,
