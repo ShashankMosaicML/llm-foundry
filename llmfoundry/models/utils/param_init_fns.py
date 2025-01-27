@@ -201,11 +201,11 @@ def mptblock_init(
 
     if isinstance(module, MPTBlock):
         with torch.no_grad():
-            module.ffn_residual_weight.weight = torch.ones_like(
-                module.ffn_residual_weight.weight,
+            module.ffn_residual_weight.data = torch.ones_like(
+                module.ffn_residual_weight.data,
             )
-            module.attn_residual_weight.weight = torch.ones_like(
-                module.attn_residual_weight.weight,
+            module.attn_residual_weight.data = torch.ones_like(
+                module.attn_residual_weight.data,
             )
         return True
 
