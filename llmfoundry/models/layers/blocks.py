@@ -74,6 +74,12 @@ class MPTBlock(nn.Module):
         ffn_type = self.ffn_config['ffn_type']
         ffn_has_norm = ffn_type in ffns_with_norm
 
+        self.ffn_residual_weight = torch.nn.Parameter(
+            torch.Tensor([1.0]),
+            requires_grad=True,
+            device=device,
+        )
+
         if self.fuse_norm_attn_norm:
             self.norm_attn_norm = FusedNormAttentionNorm(
                 d_model=d_model,
@@ -123,6 +129,11 @@ class MPTBlock(nn.Module):
                     eps=norm_eps,
                     device=device,
                 )
+            self.attn_residual_weight = torch.nn.Parameter(
+                torch.Tensor([1.0]),
+                requires_grad=True,
+                device=device,
+            )
 
         self.ffn = build_ffn(
             name=ffn_type,
@@ -200,7 +211,8 @@ class MPTBlock(nn.Module):
                 flash_attn_padding_info=flash_attn_padding_info,
                 **extra_kwargs,
             )
-            x = x + self.resid_attn_dropout(b)
+            x = x * self.attn_residual_weight.to(device=x.device,
+                                                ) + self.resid_attn_dropout(b)
             m = x
             if self.norm_2 is not None:
                 m = self.norm_2(x)
@@ -208,8 +220,9 @@ class MPTBlock(nn.Module):
         n = self.apply_ffn(attention_mask, m)
         # In the following line we move the `x` tensor to the same devices as the output of ffn layer. This operation should be a no-op during training.
         # This is done to fix pipeline parallel generation using hf.generate. Please see this comment for details: https://github.com/mosaicml/llm-foundry/pull/1332#issue-2386827204
-        x = x.to(device=n.device,
-                ) + self.resid_ffn_dropout(n).to(device=n.device,)
+        x = x.to(device=n.device) * self.ffn_residual_weight.to(
+            device=n.device,
+        ) + self.resid_ffn_dropout(n).to(device=n.device,)
         return x, attn_weights, past_key_value
 
     def apply_ffn(
@@ -317,6 +330,11 @@ class FusedNormAttentionNorm(nn.Module):
                 device=device,
             )
         self.resid_attn_dropout = nn.Dropout(resid_pdrop)
+        self.attn_residual_weight = torch.nn.Parameter(
+            torch.Tensor([1.0]),
+            requires_grad=True,
+            device=device,
+        )
 
     def forward(
         self,
@@ -353,7 +371,8 @@ class FusedNormAttentionNorm(nn.Module):
             flash_attn_padding_info=flash_attn_padding_info,
             **extra_kwargs,
         )
-        x = x + self.resid_attn_dropout(b)
+        x = x * self.attn_residual_weight.to(device=x.device,
+                                            ) + self.resid_attn_dropout(b)
         m = x
         if self.norm_2 is not None:
             m = self.norm_2(x)
